@@ -226,6 +226,10 @@
             border-bottom: 2px solid #b0c4de;
         }
         #pivot-tbl tr.row-total td.col-name { background: #dce8f5; color: #1a2a3a; }
+        #pivot-tbl tr.row-total td.col-name { cursor: pointer; }
+        #pivot-tbl tr.row-total td.col-name:hover { background: #cddcef; }
+        .toggle-icon { display: inline-block; width: 1.1em; font-size: .75em;
+                       transition: transform .15s; user-select: none; }
     </style>
 </head>
 <body>
@@ -1052,6 +1056,9 @@
         });
         document.getElementById('pv-filter-pj').addEventListener('change', () => renderPivot());
 
+        // Persistent state: welke medewerker-IDs zijn ingeklapt
+        const ingeklapt = new Set();
+
         async function renderPivot() {
             const search = document.getElementById('pv-search').value.trim().toLowerCase();
             const afd    = document.getElementById('pv-filter-afd').value;
@@ -1196,21 +1203,48 @@
             // --- Tbody ---
             const tbody = document.getElementById('pivot-tbody');
             tbody.innerHTML = '';
-            for (const [id, {naam, weken}] of medewerkers) {
-                // Totaalrij medewerker (in projectModus: uren op dat project, anders totaal)
-                const totaalClass = (mwId || projectModus) ? 'row-total' : '';
-                tbody.appendChild(maakRij(naam, weken, totaalClass, maxUren));
+            const heeftSubrijen = mwId && projectenMap.size > 0;
+            const maxPj = heeftSubrijen
+                ? Math.max(...[...projectenMap.values()].flatMap(p => Object.values(p.weken)), 1)
+                : 1;
 
-                // Projectsubrijen — alleen als deze medewerker geselecteerd is
-                if (mwId && id === mwId) {
-                    const maxPj = Math.max(...[...projectenMap.values()]
-                        .flatMap(p => Object.values(p.weken)), 1);
+            for (const [id, {naam, weken}] of medewerkers) {
+                const totaalClass = (mwId || projectModus) ? 'row-total' : '';
+                const trTotaal = maakRij(naam, weken, totaalClass, maxUren);
+
+                // Voeg toggle-knop toe aan naamcel als er subrijen zijn
+                if (heeftSubrijen && id === mwId) {
+                    const tdName = trTotaal.querySelector('.col-name');
+                    const isIngeklapt = ingeklapt.has(id);
+                    const icon = document.createElement('span');
+                    icon.className = 'toggle-icon';
+                    icon.textContent = isIngeklapt ? '▶' : '▼';
+                    tdName.prepend(icon);
+                    tdName.prepend(document.createTextNode(' '));
+                }
+                tbody.appendChild(trTotaal);
+
+                // Projectsubrijen — alleen voor de geselecteerde medewerker
+                if (heeftSubrijen && id === mwId) {
+                    const isIngeklapt = ingeklapt.has(id);
+                    const subRijen = [];
+
                     for (const [pnr, {naam: pnaam, weken: pweken}] of
-                            [...projectenMap.entries()].sort(([a],[b]) => a.localeCompare(b))) {
-                        tbody.appendChild(
-                            maakRij(`${pnr} – ${pnaam}`, pweken, 'row-project', maxPj)
-                        );
+                            [...projectenMap.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+                        const trSub = maakRij(`${pnr} – ${pnaam}`, pweken, 'row-project', maxPj);
+                        if (isIngeklapt) trSub.style.display = 'none';
+                        tbody.appendChild(trSub);
+                        subRijen.push(trSub);
                     }
+
+                    // Click: toggle zonder re-render
+                    trTotaal.querySelector('.col-name').addEventListener('click', () => {
+                        const nu = ingeklapt.has(id);
+                        nu ? ingeklapt.delete(id) : ingeklapt.add(id);
+                        const verborgen = !nu;
+                        subRijen.forEach(tr => tr.style.display = verborgen ? 'none' : '');
+                        trTotaal.querySelector('.toggle-icon').textContent = verborgen ? '▶' : '▼';
+                    });
                 }
             }
 
