@@ -339,6 +339,8 @@
         <div id="tab-pivot-2026" class="tab-panel">
             <div class="controls">
                 <input type="search" id="pv-search" placeholder="Zoek medewerker...">
+                <select id="pv-filter-mw"><option value="">Alle medewerkers</option></select>
+                <select id="pv-filter-pj"><option value="">Alle projecten</option></select>
                 <span class="row-count" id="pv-row-count"></span>
             </div>
             <div class="pivot-wrap" id="pivot-wrap">
@@ -470,12 +472,13 @@
         }
 
         // --- Populate filter dropdowns ---
-        async function fillSelect(selectId, query, field) {
+        async function fillSelect(selectId, query, field, labelFn) {
             const sel = document.getElementById(selectId);
             const res = await conn.query(query);
             for (const row of res.toArray()) {
                 const opt = document.createElement('option');
-                opt.value = opt.textContent = row[field];
+                opt.value = row[field];
+                opt.textContent = labelFn ? labelFn(row) : row[field];
                 sel.appendChild(opt);
             }
         }
@@ -913,14 +916,58 @@
         // ================================================================
         const WEEKS_2026 = Array.from({length: 52}, (_, i) => `2026-W${String(i+1).padStart(2,'0')}`);
 
+        // Vul medewerker-dropdown eenmalig
+        await fillSelect('pv-filter-mw',
+            "SELECT DISTINCT werknemer_id, werknemer FROM 'tijdschrijven.parquet' ORDER BY werknemer_id",
+            'werknemer_id',
+            row => `${row.werknemer_id} – ${row.werknemer}`);
+
+        // Wissel project-dropdown op basis van geselecteerde medewerker
+        async function updateProjectDropdown() {
+            const mwId = document.getElementById('pv-filter-mw').value;
+            const sel  = document.getElementById('pv-filter-pj');
+            const prev = sel.value;
+            sel.innerHTML = '<option value="">Alle projecten</option>';
+            const where = mwId ? `WHERE werknemer_id = '${esc(mwId)}' AND weeknummer LIKE '2026-%'`
+                                : `WHERE weeknummer LIKE '2026-%'`;
+            const res = await conn.query(
+                `SELECT DISTINCT t.projectnummer, p.projectnaam
+                 FROM 'tijdschrijven.parquet' t
+                 JOIN 'projecten.parquet' p USING (projectnummer)
+                 ${where} ORDER BY t.projectnummer`);
+            for (const row of res.toArray()) {
+                const opt = document.createElement('option');
+                opt.value = row.projectnummer;
+                opt.textContent = `${row.projectnummer} – ${row.projectnaam}`;
+                sel.appendChild(opt);
+            }
+            // Herstel vorige keuze als die nog bestaat
+            if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+        }
+        await updateProjectDropdown();
+
+        document.getElementById('pv-filter-mw').addEventListener('change', async () => {
+            await updateProjectDropdown();
+            renderPivot();
+        });
+        document.getElementById('pv-filter-pj').addEventListener('change', () => renderPivot());
+
         async function renderPivot() {
             const search = document.getElementById('pv-search').value.trim().toLowerCase();
+            const mwId   = document.getElementById('pv-filter-mw').value;
+            const pjId   = document.getElementById('pv-filter-pj').value;
 
-            // Haal alle 2026-uren op per (werknemer_id, werknemer, weeknummer)
+            // Bouw WHERE-clausule
+            const conds = [`weeknummer LIKE '2026-%'`];
+            if (mwId) conds.push(`werknemer_id = '${esc(mwId)}'`);
+            if (pjId) conds.push(`projectnummer = '${esc(pjId)}'`);
+            const where = `WHERE ${conds.join(' AND ')}`;
+
+            // Haal uren op per (werknemer_id, werknemer, weeknummer) — gefilterd op project indien gekozen
             const res = await conn.query(`
                 SELECT werknemer_id, werknemer, weeknummer, SUM(uren) AS uren
                 FROM 'tijdschrijven.parquet'
-                WHERE weeknummer LIKE '2026-%'
+                ${where}
                 GROUP BY werknemer_id, werknemer, weeknummer
                 ORDER BY werknemer_id, weeknummer
             `);
@@ -935,13 +982,15 @@
                 medewerkerMap.get(id).weken[row.weeknummer] = Number(row.uren);
             }
 
-            // Filter op zoekterm
+            // Filter op zoektekst
             const medewerkers = [...medewerkerMap.entries()]
                 .filter(([, v]) => !search || v.naam.toLowerCase().includes(search))
                 .sort(([a], [b]) => a.localeCompare(b));
 
+            const pjLabel = pjId
+                ? ` · project ${pjId}` : '';
             document.getElementById('pv-row-count').textContent =
-                `${medewerkers.length} medewerker${medewerkers.length !== 1 ? 's' : ''}`;
+                `${medewerkers.length} medewerker${medewerkers.length !== 1 ? 's' : ''}${pjLabel}`;
 
             // Kolomtotalen per week
             const weekTotaal = {};
