@@ -145,30 +145,6 @@
         .pagination button:not(:disabled):hover { background: #eef3fb; }
         .page-info { font-size: 0.85rem; color: #555; }
 
-        /* Export toolbar */
-        .export-bar {
-            display: flex; align-items: center; gap: 8px;
-            margin-bottom: 10px; flex-wrap: wrap;
-        }
-        .export-bar .sel-info { font-size: .85rem; color: #555; margin-right: auto; }
-        .export-bar button {
-            padding: 5px 12px; border: 1px solid #ccc; border-radius: 5px;
-            background: #fff; cursor: pointer; font-size: .85rem;
-        }
-        .export-bar button:hover { background: #eef3fb; }
-        .btn-clip-ok { color: #166534 !important; border-color: #166534 !important; }
-
-        /* Checkbox kolom */
-        th.col-check, td.col-check {
-            width: 36px; text-align: center;
-            padding: 4px 8px; border-right: 1px solid rgba(255,255,255,.15);
-        }
-        td.col-check { border-right: 1px solid #eee; }
-
-        /* Geselecteerde rijen */
-        tr.row-sel td { background: #dbeafe !important; }
-        tr.row-sel td.col-name { background: #c7d9f5 !important; }
-
         /* Pivot tabel */
         .pivot-wrap {
             overflow: auto;
@@ -287,11 +263,6 @@
                 <select id="p-filter-ao"><option value="">Alle opdrachtgevers</option></select>
                 <span class="row-count" id="p-row-count"></span>
             </div>
-            <div class="export-bar">
-                <span class="sel-info" id="p-sel-info"></span>
-                <button id="p-btn-csv">⬇ CSV</button>
-                <button id="p-btn-clip">📋 Klembord</button>
-            </div>
             <div class="table-wrap">
                 <table id="p-tbl">
                     <thead><tr>
@@ -327,11 +298,6 @@
                 <input type="search" id="f-search" placeholder="Zoek projectnummer...">
                 <span class="row-count" id="f-row-count"></span>
             </div>
-            <div class="export-bar">
-                <span class="sel-info" id="f-sel-info"></span>
-                <button id="f-btn-csv">⬇ CSV</button>
-                <button id="f-btn-clip">📋 Klembord</button>
-            </div>
             <div class="table-wrap">
                 <table id="f-tbl">
                     <thead><tr>
@@ -365,11 +331,6 @@
                 <input type="search" id="kp-search" placeholder="Zoek project of kostendrager...">
                 <select id="kp-filter-kd"><option value="">Alle kostendragers</option></select>
                 <span class="row-count" id="kp-row-count"></span>
-            </div>
-            <div class="export-bar">
-                <span class="sel-info" id="kp-sel-info"></span>
-                <button id="kp-btn-csv">⬇ CSV</button>
-                <button id="kp-btn-clip">📋 Klembord</button>
             </div>
             <div class="table-wrap">
                 <table id="kp-tbl">
@@ -407,11 +368,6 @@
                 <select id="pv-filter-pj"><option value="">Alle projecten</option></select>
                 <span class="row-count" id="pv-row-count"></span>
             </div>
-            <div class="export-bar">
-                <span class="sel-info" id="pv-sel-info"></span>
-                <button id="pv-btn-csv">⬇ CSV</button>
-                <button id="pv-btn-clip">📋 Klembord</button>
-            </div>
             <div class="pivot-wrap" id="pivot-wrap">
                 <table id="pivot-tbl">
                     <thead id="pivot-thead"></thead>
@@ -429,11 +385,6 @@
                 <select id="ts-filter-team"><option value="">Alle teams</option></select>
                 <select id="ts-filter-week"><option value="">Alle weken</option></select>
                 <span class="row-count" id="ts-row-count"></span>
-            </div>
-            <div class="export-bar">
-                <span class="sel-info" id="ts-sel-info"></span>
-                <button id="ts-btn-csv">⬇ CSV</button>
-                <button id="ts-btn-clip">📋 Klembord</button>
             </div>
             <div class="table-wrap">
                 <table id="ts-tbl">
@@ -470,11 +421,6 @@
                 <select id="up-filter-week"><option value="">Alle weken</option></select>
                 <span class="row-count" id="up-row-count"></span>
             </div>
-            <div class="export-bar">
-                <span class="sel-info" id="up-sel-info"></span>
-                <button id="up-btn-csv">⬇ CSV</button>
-                <button id="up-btn-clip">📋 Klembord</button>
-            </div>
             <div class="table-wrap">
                 <table id="up-tbl">
                     <thead><tr>
@@ -506,11 +452,6 @@
                 <input type="search" id="k-search" placeholder="Zoeken...">
                 <select id="k-filter-bh"><option value="">Alle budgethouders</option></select>
                 <span class="row-count" id="k-row-count"></span>
-            </div>
-            <div class="export-bar">
-                <span class="sel-info" id="k-sel-info"></span>
-                <button id="k-btn-csv">⬇ CSV</button>
-                <button id="k-btn-clip">📋 Klembord</button>
             </div>
             <div class="table-wrap">
                 <table id="k-tbl">
@@ -630,54 +571,12 @@
         // ================================================================
         function makeTable({ file, tbodyId, tableId, countId, pageInfoId,
                              firstId, prevId, nextId, lastId, pageSizeId,
-                             defaultSort, buildWhere, buildSelect, renderRow,
-                             keyField, selInfoId }) {
+                             defaultSort, buildWhere, buildSelect, renderRow }) {
             let sortCol = defaultSort;
             let sortDir = 'asc';
-            let page    = 1;
-            let pageSize  = 25;
+            let page = 1;
+            let pageSize = 25;
             let totalRows = 0;
-            const selected = new Set();  // geselecteerde sleutelwaarden
-
-            // Inject checkbox-kolom in thead (alleen als keyField opgegeven)
-            if (keyField) {
-                const theadRow = document.querySelector(`#${tableId} thead tr`);
-                const thCb = document.createElement('th');
-                thCb.className = 'col-check';
-                const cbAll = document.createElement('input');
-                cbAll.type = 'checkbox'; cbAll.title = 'Selecteer alles op deze pagina';
-                thCb.appendChild(cbAll);
-                theadRow.prepend(thCb);
-                cbAll.addEventListener('change', () => {
-                    document.querySelectorAll(`#${tbodyId} .row-check`).forEach(cb => {
-                        cb.checked = cbAll.checked;
-                        cbAll.checked ? selected.add(cb.dataset.key) : selected.delete(cb.dataset.key);
-                        cb.closest('tr').classList.toggle('row-sel', cbAll.checked);
-                    });
-                    updateSelInfo();
-                });
-            }
-
-            function updateSelInfo() {
-                if (!selInfoId) return;
-                const el = document.getElementById(selInfoId);
-                if (!el) return;
-                el.textContent = selected.size > 0
-                    ? `${selected.size} geselecteerd`
-                    : `${totalRows} rij${totalRows !== 1 ? 'en' : ''} (gefilterd)`;
-            }
-
-            function buildFullQuery() {
-                const selectClause = buildSelect ? buildSelect() : '*';
-                if (selected.size > 0 && keyField) {
-                    const keys = [...selected].map(k => `'${k.replace(/'/g, "''")}'`).join(',');
-                    return `SELECT ${selectClause} FROM '${file}'
-                            WHERE "${keyField}" IN (${keys})
-                            ORDER BY "${sortCol}" ${sortDir.toUpperCase()}`;
-                }
-                return `SELECT ${selectClause} FROM '${file}' ${buildWhere()}
-                        ORDER BY "${sortCol}" ${sortDir.toUpperCase()}`;
-            }
 
             async function render() {
                 const where = buildWhere();
@@ -689,36 +588,18 @@
                 if (page > totalPages) page = totalPages;
 
                 const offset = (page - 1) * pageSize;
-                const selectClause = buildSelect ? buildSelect() : '*';
+                const sel = buildSelect ? buildSelect() : '*';
                 const rows = (await conn.query(
-                    `SELECT ${selectClause} FROM '${file}' ${where}
+                    `SELECT ${sel} FROM '${file}' ${where}
                      ORDER BY "${sortCol}" ${sortDir.toUpperCase()}
                      LIMIT ${pageSize} OFFSET ${offset}`
                 )).toArray();
 
                 const tbody = document.getElementById(tbodyId);
                 tbody.innerHTML = '';
-                rows.forEach(row => {
-                    const tr = renderRow(row);
-                    if (keyField) {
-                        const key = String(row[keyField]);
-                        const tdCb = document.createElement('td');
-                        tdCb.className = 'col-check';
-                        const cb = document.createElement('input');
-                        cb.type = 'checkbox'; cb.className = 'row-check'; cb.dataset.key = key;
-                        cb.checked = selected.has(key);
-                        if (selected.has(key)) tr.classList.add('row-sel');
-                        cb.addEventListener('change', () => {
-                            cb.checked ? selected.add(key) : selected.delete(key);
-                            tr.classList.toggle('row-sel', cb.checked);
-                            updateSelInfo();
-                        });
-                        tdCb.appendChild(cb);
-                        tr.prepend(tdCb);
-                    }
-                    tbody.appendChild(tr);
-                });
+                rows.forEach(row => { tbody.appendChild(renderRow(row)); });
 
+                // Sort icons
                 document.querySelectorAll(`#${tableId} th`).forEach(th => {
                     th.classList.remove('asc', 'desc');
                     if (th.dataset.col === sortCol) th.classList.add(sortDir);
@@ -732,9 +613,10 @@
                 document.getElementById(prevId).disabled  = page === 1;
                 document.getElementById(nextId).disabled  = page === totalPages;
                 document.getElementById(lastId).disabled  = page === totalPages;
-                updateSelInfo();
+                document.getElementById(lastId)._total    = totalPages;
             }
 
+            // Column sort
             document.querySelectorAll(`#${tableId} th[data-col]`).forEach(th => {
                 th.addEventListener('click', () => {
                     sortCol === th.dataset.col
@@ -744,6 +626,7 @@
                 });
             });
 
+            // Pagination
             document.getElementById(firstId).addEventListener('click', () => { page = 1; render(); });
             document.getElementById(prevId).addEventListener('click',  () => { page--; render(); });
             document.getElementById(nextId).addEventListener('click',  () => { page++; render(); });
@@ -754,47 +637,7 @@
                 pageSize = Number(e.target.value); page = 1; render();
             });
 
-            render.selected       = selected;
-            render.buildFullQuery = buildFullQuery;
             return render;
-        }
-
-        // ================================================================
-        // Export helpers
-        // ================================================================
-        async function exportCSV(query, filename) {
-            const res  = await conn.query(query);
-            const rows = res.toArray();
-            if (!rows.length) return;
-            const cols  = Object.keys(rows[0]);
-            const lines = [cols.join(';')];
-            for (const row of rows) {
-                lines.push(cols.map(c => {
-                    const v = row[c] == null ? '' : String(row[c]);
-                    return v.includes(';') || v.includes('"') || v.includes('\n')
-                        ? `"${v.replace(/"/g, '""')}"` : v;
-                }).join(';'));
-            }
-            const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
-            const url  = URL.createObjectURL(blob);
-            const a    = document.createElement('a');
-            a.href = url; a.download = filename; a.click();
-            URL.revokeObjectURL(url);
-        }
-
-        async function copyToClipboard(query, btnEl) {
-            const res  = await conn.query(query);
-            const rows = res.toArray();
-            if (!rows.length) return;
-            const cols  = Object.keys(rows[0]);
-            const lines = [cols.join('\t')];
-            for (const row of rows)
-                lines.push(cols.map(c => row[c] == null ? '' : String(row[c])).join('\t'));
-            await navigator.clipboard.writeText(lines.join('\r\n'));
-            btnEl.classList.add('btn-clip-ok');
-            const orig = btnEl.textContent;
-            btnEl.textContent = '✓ Gekopieerd';
-            setTimeout(() => { btnEl.classList.remove('btn-clip-ok'); btnEl.textContent = orig; }, 2000);
         }
 
         // ================================================================
@@ -837,7 +680,6 @@
             firstId: 'p-first', prevId: 'p-prev', nextId: 'p-next', lastId: 'p-last',
             pageSizeId: 'p-page-size', defaultSort: 'projectnummer',
             buildWhere: pWhere, renderRow: pRow,
-            keyField: 'projectnummer', selInfoId: 'p-sel-info',
         });
 
         let pTimer;
@@ -888,7 +730,6 @@
             firstId: 'f-first', prevId: 'f-prev', nextId: 'f-next', lastId: 'f-last',
             pageSizeId: 'f-page-size', defaultSort: 'projectnummer',
             buildWhere: fWhere, buildSelect: fSelect, renderRow: fRow,
-            keyField: 'projectnummer', selInfoId: 'f-sel-info',
         });
 
         let fTimer;
@@ -932,7 +773,6 @@
             firstId: 'k-first', prevId: 'k-prev', nextId: 'k-next', lastId: 'k-last',
             pageSizeId: 'k-page-size', defaultSort: 'kostendrager',
             buildWhere: kWhere, buildSelect: kSelect, renderRow: kRow,
-            keyField: 'kostendrager', selInfoId: 'k-sel-info',
         });
 
         let kTimer;
@@ -998,7 +838,6 @@
                 th.classList.remove('asc', 'desc');
                 if (th.dataset.col === col) th.classList.add(dir);
             });
-            document.getElementById('kp-sel-info').textContent = `${totalKP} rij${totalKP !== 1 ? 'en' : ''} (gefilterd)`;
             document.getElementById('kp-row-count').textContent = `${totalKP} rijen`;
             document.getElementById('kp-page-info').textContent = `Pagina ${renderKP._page} van ${totalPagesKP}`;
             document.getElementById('kp-first').disabled = renderKP._page === 1;
@@ -1039,7 +878,7 @@
             file: 'tijdschrijven.parquet', tbodyId: 'ts-tbody', tableId: 'ts-tbl',
             countId: 'ts-row-count', pageInfoId: 'ts-page-info',
             firstId: 'ts-first', prevId: 'ts-prev', nextId: 'ts-next', lastId: 'ts-last',
-            pageSizeId: 'ts-page-size', defaultSort: 'weeknummer', selInfoId: 'ts-sel-info',
+            pageSizeId: 'ts-page-size', defaultSort: 'weeknummer',
             buildWhere() {
                 const conds = [];
                 const s = document.getElementById('ts-search').value.trim();
@@ -1122,7 +961,6 @@
                 th.classList.remove('asc','desc');
                 if (th.dataset.col === col) th.classList.add(dir);
             });
-            document.getElementById('up-sel-info').textContent = `${total} rij${total !== 1 ? 'en' : ''} (gefilterd)`;
             document.getElementById('up-row-count').textContent = `${total} rijen`;
             document.getElementById('up-page-info').textContent = `Pagina ${renderUP._page} van ${totalPg}`;
             document.getElementById('up-first').disabled = renderUP._page === 1;
@@ -1306,7 +1144,6 @@
             let teller = `${medewerkers.length} medewerker${medewerkers.length !== 1 ? 's' : ''}`;
             if (projectModus) teller += ` op ${pjId}`;
             document.getElementById('pv-row-count').textContent = teller;
-            document.getElementById('pv-sel-info').textContent = teller;
 
             // Kolomtotalen
             const weekTotaal = {};
@@ -1440,78 +1277,6 @@
         document.getElementById('pv-search').addEventListener('input', () => {
             clearTimeout(pvTimer); pvTimer = setTimeout(() => renderPivot(), 200);
         });
-
-        // ================================================================
-        // Export buttons
-        // ================================================================
-        // Projecten
-        document.getElementById('p-btn-csv').addEventListener('click',  ()  => exportCSV(renderP.buildFullQuery(), 'projecten.csv'));
-        document.getElementById('p-btn-clip').addEventListener('click', e   => copyToClipboard(renderP.buildFullQuery(), e.currentTarget));
-
-        // Financiën
-        document.getElementById('f-btn-csv').addEventListener('click',  ()  => exportCSV(renderF.buildFullQuery(), 'financien.csv'));
-        document.getElementById('f-btn-clip').addEventListener('click', e   => copyToClipboard(renderF.buildFullQuery(), e.currentTarget));
-
-        // Kostendragers
-        document.getElementById('k-btn-csv').addEventListener('click',  ()  => exportCSV(renderK.buildFullQuery(), 'kostendragers.csv'));
-        document.getElementById('k-btn-clip').addEventListener('click', e   => copyToClipboard(renderK.buildFullQuery(), e.currentTarget));
-
-        // KD ↔ Projecten (custom render)
-        function kpFullQuery() {
-            const where  = kpWhere();
-            const col    = renderKP._col, dir = renderKP._dir;
-            const colSql = ['projectnaam','projectmanager','type'].includes(col) ? `p.${col}` : `kp.${col}`;
-            return `SELECT kp.kostendrager, kp.projectnummer, p.projectnaam, p.projectmanager, p.type
-                    FROM '${KP_FILE}' kp ${KP_JOIN} ${where}
-                    ORDER BY ${colSql} ${dir.toUpperCase()}`;
-        }
-        document.getElementById('kp-btn-csv').addEventListener('click',  ()  => exportCSV(kpFullQuery(), 'kd_projecten.csv'));
-        document.getElementById('kp-btn-clip').addEventListener('click', e   => copyToClipboard(kpFullQuery(), e.currentTarget));
-
-        // Tijdschrijven
-        document.getElementById('ts-btn-csv').addEventListener('click',  ()  => exportCSV(renderTS.buildFullQuery(), 'tijdschrijven.csv'));
-        document.getElementById('ts-btn-clip').addEventListener('click', e   => copyToClipboard(renderTS.buildFullQuery(), e.currentTarget));
-
-        // Uren per project (aggregatie)
-        function upFullQuery() {
-            const s  = document.getElementById('up-search').value.trim();
-            const wk = document.getElementById('up-filter-week').value;
-            const conds = [];
-            if (s)  conds.push(`t.projectnummer ILIKE '%${esc(s)}%' OR p.projectnaam ILIKE '%${esc(s)}%'`);
-            if (wk) conds.push(`t.weeknummer = '${esc(wk)}'`);
-            const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
-            const col = renderUP._col, dir = renderUP._dir;
-            return `SELECT t.projectnummer, p.projectnaam,
-                           COUNT(DISTINCT t.werknemer_id) AS aantal_werknemers,
-                           SUM(t.uren) AS totaal_uren
-                    FROM 'tijdschrijven.parquet' t
-                    JOIN 'projecten.parquet' p USING (projectnummer)
-                    ${where}
-                    GROUP BY t.projectnummer, p.projectnaam
-                    ORDER BY "${col}" ${dir.toUpperCase()}`;
-        }
-        document.getElementById('up-btn-csv').addEventListener('click',  ()  => exportCSV(upFullQuery(), 'uren_per_project.csv'));
-        document.getElementById('up-btn-clip').addEventListener('click', e   => copyToClipboard(upFullQuery(), e.currentTarget));
-
-        // Pivot (flat export: medewerker × week)
-        function pvFullQuery() {
-            const afd  = document.getElementById('pv-filter-afd').value;
-            const team = document.getElementById('pv-filter-team').value;
-            const mwId = document.getElementById('pv-filter-mw').value;
-            const pjId = document.getElementById('pv-filter-pj').value;
-            const conds = [`weeknummer LIKE '2026-%'`];
-            if (afd)  conds.push(`afdeling = '${esc(afd)}'`);
-            if (team) conds.push(`team = '${esc(team)}'`);
-            if (mwId) conds.push(`werknemer_id = '${esc(mwId)}'`);
-            if (pjId) conds.push(`projectnummer = '${esc(pjId)}'`);
-            return `SELECT werknemer_id, werknemer, weeknummer, SUM(uren) AS uren
-                    FROM 'tijdschrijven.parquet'
-                    WHERE ${conds.join(' AND ')}
-                    GROUP BY werknemer_id, werknemer, weeknummer
-                    ORDER BY werknemer_id, weeknummer`;
-        }
-        document.getElementById('pv-btn-csv').addEventListener('click',  ()  => exportCSV(pvFullQuery(), 'uren_per_week_2026.csv'));
-        document.getElementById('pv-btn-clip').addEventListener('click', e   => copyToClipboard(pvFullQuery(), e.currentTarget));
 
         // ================================================================
         // Tabs
