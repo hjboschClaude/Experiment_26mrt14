@@ -144,6 +144,69 @@
         .pagination button:disabled { opacity: .4; cursor: default; }
         .pagination button:not(:disabled):hover { background: #eef3fb; }
         .page-info { font-size: 0.85rem; color: #555; }
+
+        /* Pivot tabel */
+        .pivot-wrap {
+            overflow: auto;
+            border-radius: 8px;
+            box-shadow: 0 1px 4px rgba(0,0,0,.1);
+            background: #fff;
+            max-height: 75vh;
+        }
+        #pivot-tbl {
+            border-collapse: collapse;
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+        #pivot-tbl thead tr:first-child th { background: #1a2a3a; color: #fff; }
+        #pivot-tbl thead tr:last-child  th { background: #2c3e50; color: #dce8f5; font-size: .7rem; }
+        #pivot-tbl thead th {
+            padding: 7px 10px;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            text-align: center;
+        }
+        #pivot-tbl thead th.col-name { text-align: left; }
+        #pivot-tbl th.col-name,
+        #pivot-tbl td.col-name {
+            position: sticky;
+            left: 0;
+            z-index: 1;
+            min-width: 160px;
+            max-width: 160px;
+            background: #f0f4f8;
+            border-right: 2px solid #c9d8e8;
+            font-weight: 600;
+        }
+        #pivot-tbl thead th.col-name { z-index: 3; background: #1a2a3a; color: #fff; }
+        #pivot-tbl tbody tr:nth-child(even) td { background: #f9f9f9; }
+        #pivot-tbl tbody tr:nth-child(even) td.col-name { background: #e8eef4; }
+        #pivot-tbl tbody tr:hover td { background: #eef3fb; }
+        #pivot-tbl tbody tr:hover td.col-name { background: #dce8f5; }
+        #pivot-tbl td {
+            padding: 5px 8px;
+            border-bottom: 1px solid #eee;
+            text-align: right;
+            color: #444;
+        }
+        #pivot-tbl td.zero { color: #ccc; }
+        #pivot-tbl td.high { color: #1a6b3a; font-weight: 700; }
+        #pivot-tbl tfoot td {
+            background: #2c3e50;
+            color: #fff;
+            font-weight: 700;
+            padding: 6px 8px;
+            text-align: right;
+            position: sticky;
+            bottom: 0;
+        }
+        #pivot-tbl tfoot td.col-name {
+            background: #1a2a3a;
+            text-align: left;
+            color: #dce8f5;
+            z-index: 2;
+        }
     </style>
 </head>
 <body>
@@ -158,6 +221,7 @@
             <button class="tab-btn"        data-tab="tab-kd-projecten">KD ↔ Projecten</button>
             <button class="tab-btn"        data-tab="tab-tijdschrijven">Tijdschrijven</button>
             <button class="tab-btn"        data-tab="tab-uren-project">Uren per project</button>
+            <button class="tab-btn"        data-tab="tab-pivot-2026">Uren per week 2026</button>
         </div>
 
         <!-- TAB 1: Projecten -->
@@ -268,6 +332,21 @@
                     <option value="50">50 / pagina</option>
                     <option value="100">100 / pagina</option>
                 </select>
+            </div>
+        </div>
+
+        <!-- TAB 7: Pivot uren per week 2026 -->
+        <div id="tab-pivot-2026" class="tab-panel">
+            <div class="controls">
+                <input type="search" id="pv-search" placeholder="Zoek medewerker...">
+                <span class="row-count" id="pv-row-count"></span>
+            </div>
+            <div class="pivot-wrap" id="pivot-wrap">
+                <table id="pivot-tbl">
+                    <thead id="pivot-thead"></thead>
+                    <tbody id="pivot-tbody"></tbody>
+                    <tfoot id="pivot-tfoot"></tfoot>
+                </table>
             </div>
         </div>
 
@@ -830,6 +909,130 @@
         document.getElementById('up-filter-week').addEventListener('change', () => { renderUP._page = 1; renderUP(); });
 
         // ================================================================
+        // Tab 7 – Pivot: uren per medewerker per week (2026)
+        // ================================================================
+        const WEEKS_2026 = Array.from({length: 52}, (_, i) => `2026-W${String(i+1).padStart(2,'0')}`);
+
+        async function renderPivot() {
+            const search = document.getElementById('pv-search').value.trim().toLowerCase();
+
+            // Haal alle 2026-uren op per (werknemer_id, werknemer, weeknummer)
+            const res = await conn.query(`
+                SELECT werknemer_id, werknemer, weeknummer, SUM(uren) AS uren
+                FROM 'tijdschrijven.parquet'
+                WHERE weeknummer LIKE '2026-%'
+                GROUP BY werknemer_id, werknemer, weeknummer
+                ORDER BY werknemer_id, weeknummer
+            `);
+
+            // Bouw een map: werknemer_id → { naam, week → uren }
+            const medewerkerMap = new Map();
+            for (const row of res.toArray()) {
+                const id = row.werknemer_id;
+                if (!medewerkerMap.has(id)) {
+                    medewerkerMap.set(id, { naam: row.werknemer, weken: {} });
+                }
+                medewerkerMap.get(id).weken[row.weeknummer] = Number(row.uren);
+            }
+
+            // Filter op zoekterm
+            const medewerkers = [...medewerkerMap.entries()]
+                .filter(([, v]) => !search || v.naam.toLowerCase().includes(search))
+                .sort(([a], [b]) => a.localeCompare(b));
+
+            document.getElementById('pv-row-count').textContent =
+                `${medewerkers.length} medewerker${medewerkers.length !== 1 ? 's' : ''}`;
+
+            // Kolomtotalen per week
+            const weekTotaal = {};
+            for (const [, {weken}] of medewerkers) {
+                for (const wk of WEEKS_2026) {
+                    weekTotaal[wk] = (weekTotaal[wk] || 0) + (weken[wk] || 0);
+                }
+            }
+
+            // Max uren voor kleurschaal
+            const allUren = medewerkers.flatMap(([, {weken}]) => Object.values(weken));
+            const maxUren = allUren.length ? Math.max(...allUren) : 36;
+
+            // --- Thead ---
+            const thead = document.getElementById('pivot-thead');
+            thead.innerHTML = '';
+            // Rij 1: maandgroepen
+            const tr1 = document.createElement('tr');
+            const thName1 = document.createElement('th');
+            thName1.className = 'col-name'; thName1.rowSpan = 2; thName1.textContent = 'Medewerker';
+            tr1.appendChild(thName1);
+            // Groepeer weken per maand (ISO week → datum van maandag)
+            let lastMonth = null, curTh = null;
+            for (const wk of WEEKS_2026) {
+                const [yr, wn] = wk.split('-W').map(Number);
+                // ISO week maandag
+                const jan4 = new Date(yr, 0, 4);
+                const monday = new Date(jan4);
+                monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (wn - 1) * 7);
+                const maand = monday.toLocaleString('nl-NL', {month: 'short'});
+                if (maand !== lastMonth) {
+                    curTh = document.createElement('th');
+                    curTh.textContent = maand.charAt(0).toUpperCase() + maand.slice(1);
+                    curTh.colSpan = 1;
+                    tr1.appendChild(curTh);
+                    lastMonth = maand;
+                } else {
+                    curTh.colSpan++;
+                }
+            }
+            thead.appendChild(tr1);
+            // Rij 2: weeknummers
+            const tr2 = document.createElement('tr');
+            for (const wk of WEEKS_2026) {
+                const th = document.createElement('th');
+                th.textContent = 'W' + wk.slice(6);
+                tr2.appendChild(th);
+            }
+            thead.appendChild(tr2);
+
+            // --- Tbody ---
+            const tbody = document.getElementById('pivot-tbody');
+            tbody.innerHTML = '';
+            for (const [id, {naam, weken}] of medewerkers) {
+                const tr = document.createElement('tr');
+                const tdName = document.createElement('td');
+                tdName.className = 'col-name';
+                tdName.textContent = naam;
+                tr.appendChild(tdName);
+                for (const wk of WEEKS_2026) {
+                    const td = document.createElement('td');
+                    const u = weken[wk] || 0;
+                    td.textContent = u > 0 ? u : '–';
+                    if (u === 0) td.className = 'zero';
+                    else if (u >= maxUren * 0.75) td.className = 'high';
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            }
+
+            // --- Tfoot (kolomtotalen) ---
+            const tfoot = document.getElementById('pivot-tfoot');
+            tfoot.innerHTML = '';
+            const tfTr = document.createElement('tr');
+            const tfName = document.createElement('td');
+            tfName.className = 'col-name'; tfName.textContent = 'Totaal';
+            tfTr.appendChild(tfName);
+            for (const wk of WEEKS_2026) {
+                const td = document.createElement('td');
+                td.textContent = weekTotaal[wk] || '–';
+                tfTr.appendChild(td);
+            }
+            tfoot.appendChild(tfTr);
+        }
+
+        let pvTimer;
+        document.getElementById('pv-search').addEventListener('input', () => {
+            clearTimeout(pvTimer); pvTimer = setTimeout(() => renderPivot(), 200);
+        });
+
+        // ================================================================
         // Tabs
         // ================================================================
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -844,7 +1047,7 @@
         // --- Show UI ---
         status.style.display = 'none';
         document.getElementById('app').style.display = '';
-        await Promise.all([renderP(), renderF(), renderK(), renderKP(), renderTS(), renderUP()]);
+        await Promise.all([renderP(), renderF(), renderK(), renderKP(), renderTS(), renderUP(), renderPivot()]);
     </script>
 </body>
 </html>

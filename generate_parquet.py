@@ -173,10 +173,10 @@ for w in werknemers:
     k = int(rng5.integers(1, 7))
     werknemer_projecten[w] = list(rng5.choice(projectnummers, k, replace=False))
 
-# Genereer weeknummers: 2024-W01 t/m 2025-W52
+# Genereer weeknummers: 2024-W01 t/m 2026-W52
 import datetime
 weeknummers = []
-for jaar in [2024, 2025]:
+for jaar in [2024, 2025, 2026]:
     for wk in range(1, 53):
         weeknummers.append(f"{jaar}-W{wk:02d}")
 
