@@ -207,6 +207,25 @@
             color: #dce8f5;
             z-index: 2;
         }
+
+        /* Project-subrijen */
+        #pivot-tbl tr.row-project td { background: #f4f8ff; color: #555; font-size: .75rem; }
+        #pivot-tbl tr.row-project td.col-name {
+            background: #eaf0fb;
+            padding-left: 28px;
+            font-weight: 400;
+            color: #2c5282;
+            border-right-color: #b8cde8;
+        }
+        #pivot-tbl tr.row-project td.col-name::before { content: '↳ '; opacity: .5; }
+        #pivot-tbl tr.row-project td.high { color: #276749; font-weight: 600; }
+        #pivot-tbl tr.row-project td.zero { color: #ccc; }
+        #pivot-tbl tr.row-total td {
+            font-weight: 700;
+            border-top: 2px solid #b0c4de;
+            border-bottom: 2px solid #b0c4de;
+        }
+        #pivot-tbl tr.row-total td.col-name { background: #dce8f5; color: #1a2a3a; }
     </style>
 </head>
 <body>
@@ -957,28 +976,31 @@
             const mwId   = document.getElementById('pv-filter-mw').value;
             const pjId   = document.getElementById('pv-filter-pj').value;
 
-            // Bouw WHERE-clausule
-            const conds = [`weeknummer LIKE '2026-%'`];
-            if (mwId) conds.push(`werknemer_id = '${esc(mwId)}'`);
-            if (pjId) conds.push(`projectnummer = '${esc(pjId)}'`);
-            const where = `WHERE ${conds.join(' AND ')}`;
+            // WHERE voor totaalregel (zonder projectfilter, want totaal = alle projecten)
+            const condsTotal = [`weeknummer LIKE '2026-%'`];
+            if (mwId) condsTotal.push(`werknemer_id = '${esc(mwId)}'`);
+            const whereTotal = `WHERE ${condsTotal.join(' AND ')}`;
 
-            // Haal uren op per (werknemer_id, werknemer, weeknummer) — gefilterd op project indien gekozen
-            const res = await conn.query(`
+            // WHERE voor projectsubrijen (wél projectfilter meenemen)
+            const condsDetail = [...condsTotal];
+            if (pjId) condsDetail.push(`projectnummer = '${esc(pjId)}'`);
+            const whereDetail = `WHERE ${condsDetail.join(' AND ')}`;
+
+            // Totaaluren per medewerker per week (altijd over alle projecten)
+            const resTotaal = await conn.query(`
                 SELECT werknemer_id, werknemer, weeknummer, SUM(uren) AS uren
                 FROM 'tijdschrijven.parquet'
-                ${where}
+                ${whereTotal}
                 GROUP BY werknemer_id, werknemer, weeknummer
                 ORDER BY werknemer_id, weeknummer
             `);
 
-            // Bouw een map: werknemer_id → { naam, week → uren }
+            // Bouw map: werknemer_id → { naam, weken: { week → uren } }
             const medewerkerMap = new Map();
-            for (const row of res.toArray()) {
+            for (const row of resTotaal.toArray()) {
                 const id = row.werknemer_id;
-                if (!medewerkerMap.has(id)) {
+                if (!medewerkerMap.has(id))
                     medewerkerMap.set(id, { naam: row.werknemer, weken: {} });
-                }
                 medewerkerMap.get(id).weken[row.weeknummer] = Number(row.uren);
             }
 
@@ -987,52 +1009,84 @@
                 .filter(([, v]) => !search || v.naam.toLowerCase().includes(search))
                 .sort(([a], [b]) => a.localeCompare(b));
 
-            const pjLabel = pjId
-                ? ` · project ${pjId}` : '';
-            document.getElementById('pv-row-count').textContent =
-                `${medewerkers.length} medewerker${medewerkers.length !== 1 ? 's' : ''}${pjLabel}`;
-
-            // Kolomtotalen per week
-            const weekTotaal = {};
-            for (const [, {weken}] of medewerkers) {
-                for (const wk of WEEKS_2026) {
-                    weekTotaal[wk] = (weekTotaal[wk] || 0) + (weken[wk] || 0);
+            // Uitsplitsing per project — alleen ophalen als één medewerker geselecteerd is
+            // Map: werknemer_id → [ { projectnummer, projectnaam, weken } ]
+            let projectenMap = new Map();
+            if (mwId) {
+                const resPj = await conn.query(`
+                    SELECT t.projectnummer, p.projectnaam, t.weeknummer, SUM(t.uren) AS uren
+                    FROM 'tijdschrijven.parquet' t
+                    JOIN 'projecten.parquet' p USING (projectnummer)
+                    ${whereDetail}
+                    GROUP BY t.projectnummer, p.projectnaam, t.weeknummer
+                    ORDER BY t.projectnummer, t.weeknummer
+                `);
+                for (const row of resPj.toArray()) {
+                    if (!projectenMap.has(row.projectnummer))
+                        projectenMap.set(row.projectnummer, { naam: row.projectnaam, weken: {} });
+                    projectenMap.get(row.projectnummer).weken[row.weeknummer] = Number(row.uren);
                 }
             }
 
-            // Max uren voor kleurschaal
+            document.getElementById('pv-row-count').textContent =
+                `${medewerkers.length} medewerker${medewerkers.length !== 1 ? 's' : ''}` +
+                (mwId ? ` · ${projectenMap.size} project${projectenMap.size !== 1 ? 'en' : ''}` : '');
+
+            // Kolomtotalen (over de gefilterde medewerkers en eventueel project)
+            const weekTotaal = {};
+            const bron = pjId && mwId ? [...projectenMap.values()] : medewerkers.map(([,v]) => v);
+            for (const {weken} of bron) {
+                for (const wk of WEEKS_2026)
+                    weekTotaal[wk] = (weekTotaal[wk] || 0) + (weken[wk] || 0);
+            }
+
+            // Max uren voor kleurschaal (op totaalrijen)
             const allUren = medewerkers.flatMap(([, {weken}]) => Object.values(weken));
             const maxUren = allUren.length ? Math.max(...allUren) : 36;
+
+            // Helper: bouw een tabelrij
+            function maakRij(labelTekst, weken, extraClass, maxU) {
+                const tr = document.createElement('tr');
+                if (extraClass) tr.className = extraClass;
+                const tdName = document.createElement('td');
+                tdName.className = 'col-name';
+                tdName.textContent = labelTekst;
+                tr.appendChild(tdName);
+                for (const wk of WEEKS_2026) {
+                    const td = document.createElement('td');
+                    const u = weken[wk] || 0;
+                    td.textContent = u > 0 ? u : '–';
+                    if (u === 0) td.className = 'zero';
+                    else if (u >= maxU * 0.75) td.className = 'high';
+                    tr.appendChild(td);
+                }
+                return tr;
+            }
 
             // --- Thead ---
             const thead = document.getElementById('pivot-thead');
             thead.innerHTML = '';
-            // Rij 1: maandgroepen
             const tr1 = document.createElement('tr');
             const thName1 = document.createElement('th');
-            thName1.className = 'col-name'; thName1.rowSpan = 2; thName1.textContent = 'Medewerker';
+            thName1.className = 'col-name'; thName1.rowSpan = 2;
+            thName1.textContent = mwId ? 'Medewerker / Project' : 'Medewerker';
             tr1.appendChild(thName1);
-            // Groepeer weken per maand (ISO week → datum van maandag)
             let lastMonth = null, curTh = null;
             for (const wk of WEEKS_2026) {
                 const [yr, wn] = wk.split('-W').map(Number);
-                // ISO week maandag
-                const jan4 = new Date(yr, 0, 4);
+                const jan4   = new Date(yr, 0, 4);
                 const monday = new Date(jan4);
                 monday.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7) + (wn - 1) * 7);
-                const maand = monday.toLocaleString('nl-NL', {month: 'short'});
+                const maand  = monday.toLocaleString('nl-NL', {month: 'short'});
                 if (maand !== lastMonth) {
                     curTh = document.createElement('th');
                     curTh.textContent = maand.charAt(0).toUpperCase() + maand.slice(1);
                     curTh.colSpan = 1;
                     tr1.appendChild(curTh);
                     lastMonth = maand;
-                } else {
-                    curTh.colSpan++;
-                }
+                } else { curTh.colSpan++; }
             }
             thead.appendChild(tr1);
-            // Rij 2: weeknummers
             const tr2 = document.createElement('tr');
             for (const wk of WEEKS_2026) {
                 const th = document.createElement('th');
@@ -1045,28 +1099,30 @@
             const tbody = document.getElementById('pivot-tbody');
             tbody.innerHTML = '';
             for (const [id, {naam, weken}] of medewerkers) {
-                const tr = document.createElement('tr');
-                const tdName = document.createElement('td');
-                tdName.className = 'col-name';
-                tdName.textContent = naam;
-                tr.appendChild(tdName);
-                for (const wk of WEEKS_2026) {
-                    const td = document.createElement('td');
-                    const u = weken[wk] || 0;
-                    td.textContent = u > 0 ? u : '–';
-                    if (u === 0) td.className = 'zero';
-                    else if (u >= maxUren * 0.75) td.className = 'high';
-                    tr.appendChild(td);
+                // Totaalrij medewerker
+                const totaalClass = mwId ? 'row-total' : '';
+                tbody.appendChild(maakRij(naam, weken, totaalClass, maxUren));
+
+                // Projectsubrijen — alleen als deze medewerker geselecteerd is
+                if (mwId && id === mwId) {
+                    const maxPj = Math.max(...[...projectenMap.values()]
+                        .flatMap(p => Object.values(p.weken)), 1);
+                    for (const [pnr, {naam: pnaam, weken: pweken}] of
+                            [...projectenMap.entries()].sort(([a],[b]) => a.localeCompare(b))) {
+                        tbody.appendChild(
+                            maakRij(`${pnr} – ${pnaam}`, pweken, 'row-project', maxPj)
+                        );
+                    }
                 }
-                tbody.appendChild(tr);
             }
 
-            // --- Tfoot (kolomtotalen) ---
+            // --- Tfoot ---
             const tfoot = document.getElementById('pivot-tfoot');
             tfoot.innerHTML = '';
             const tfTr = document.createElement('tr');
             const tfName = document.createElement('td');
-            tfName.className = 'col-name'; tfName.textContent = 'Totaal';
+            tfName.className = 'col-name';
+            tfName.textContent = mwId && pjId ? `Totaal ${pjId}` : 'Totaal';
             tfTr.appendChild(tfName);
             for (const wk of WEEKS_2026) {
                 const td = document.createElement('td');
