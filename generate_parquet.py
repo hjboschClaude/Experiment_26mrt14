@@ -75,3 +75,42 @@ df2 = pd.DataFrame({
 
 df2.to_parquet("financien.parquet", index=False)
 print(f"Aangemaakt: financien.parquet ({len(df2)} rijen, {len(df2.columns)} kolommen)")
+
+# --- Parquet 3: kostendragers ---
+kostendragers = [
+    "KD-001 Personeelskosten",
+    "KD-002 Huisvesting",
+    "KD-003 ICT & Licenties",
+    "KD-004 Inhuur extern",
+    "KD-005 Communicatie",
+    "KD-006 Subsidies verstrekt",
+    "KD-007 Grondaankopen",
+    "KD-008 Bouw & Infra",
+    "KD-009 Onderzoek",
+    "KD-010 Juridische kosten",
+    "KD-011 Opleidingen",
+    "KD-012 Evenementen",
+    "KD-013 Beheer openbare ruimte",
+    "KD-014 Milieu & Duurzaamheid",
+    "KD-015 Overige kosten",
+]
+
+budgethouders = [
+    "Annemiek Prins", "Bas van Leeuwen", "Claudia Dekker",
+    "Dennis Hofman", "Esther Nooij", "Floris Berger"
+]
+
+rng3 = np.random.default_rng(7)
+
+def rand_amount(low, high, size):
+    return (rng3.integers(low // 1000, high // 1000, size) * 1000).astype(float)
+
+df3 = pd.DataFrame({
+    "kostendrager":  kostendragers,
+    "budgethouder":  rng3.choice(budgethouders, 15),
+    "baten_2026":    rand_amount(0, 500_000, 15).round(2),
+    "lasten_2026":   rand_amount(10_000, 1_500_000, 15).round(2),
+})
+
+df3.to_parquet("kostendragers.parquet", index=False)
+print(f"Aangemaakt: kostendragers.parquet ({len(df3)} rijen, {len(df3.columns)} kolommen)")

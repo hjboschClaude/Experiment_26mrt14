@@ -154,6 +154,7 @@
         <div class="tabs">
             <button class="tab-btn active" data-tab="tab-projecten">Projecten</button>
             <button class="tab-btn"        data-tab="tab-financien">Financiën</button>
+            <button class="tab-btn"        data-tab="tab-kostendragers">Kostendragers</button>
         </div>
 
         <!-- TAB 1: Projecten -->
@@ -234,6 +235,37 @@
                 </select>
             </div>
         </div>
+        <!-- TAB 3: Kostendragers -->
+        <div id="tab-kostendragers" class="tab-panel">
+            <div class="controls">
+                <input type="search" id="k-search" placeholder="Zoeken...">
+                <select id="k-filter-bh"><option value="">Alle budgethouders</option></select>
+                <span class="row-count" id="k-row-count"></span>
+            </div>
+            <div class="table-wrap">
+                <table id="k-tbl">
+                    <thead><tr>
+                        <th data-col="kostendrager">Kostendrager<span class="si"></span></th>
+                        <th data-col="budgethouder">Budgethouder<span class="si"></span></th>
+                        <th data-col="baten_2026">Baten 2026<span class="si"></span></th>
+                        <th data-col="lasten_2026">Lasten 2026<span class="si"></span></th>
+                        <th data-col="saldo_2026">Saldo 2026<span class="si"></span></th>
+                    </tr></thead>
+                    <tbody id="k-tbody"></tbody>
+                </table>
+            </div>
+            <div class="pagination">
+                <button id="k-first">«</button>
+                <button id="k-prev">‹</button>
+                <span class="page-info" id="k-page-info"></span>
+                <button id="k-next">›</button>
+                <button id="k-last">»</button>
+                <select id="k-page-size">
+                    <option value="25" selected>25 / pagina</option>
+                    <option value="50">50 / pagina</option>
+                </select>
+            </div>
+        </div>
     </div>
 
     <script type="module">
@@ -252,7 +284,7 @@
 
         // --- Load parquet files ---
         status.textContent = 'Parquet bestanden laden...';
-        for (const file of ['projecten.parquet', 'financien.parquet']) {
+        for (const file of ['projecten.parquet', 'financien.parquet', 'kostendragers.parquet']) {
             const buf = await (await fetch(file)).arrayBuffer();
             await db.registerFileBuffer(file, new Uint8Array(buf));
         }
@@ -271,6 +303,7 @@
             fillSelect('p-filter-pm',  "SELECT DISTINCT projectmanager FROM 'projecten.parquet' ORDER BY 1", 'projectmanager'),
             fillSelect('p-filter-dir', "SELECT DISTINCT \"verantwoordelijke directeur\" FROM 'projecten.parquet' ORDER BY 1", 'verantwoordelijke directeur'),
             fillSelect('p-filter-ao',  "SELECT DISTINCT \"ambtelijk opdrachtgever\" FROM 'projecten.parquet' ORDER BY 1", 'ambtelijk opdrachtgever'),
+            fillSelect('k-filter-bh',  "SELECT DISTINCT budgethouder FROM 'kostendragers.parquet' ORDER BY 1", 'budgethouder'),
         ]);
 
         // ================================================================
@@ -445,6 +478,50 @@
         });
 
         // ================================================================
+        // Tab 3 – Kostendragers
+        // ================================================================
+        function kWhere() {
+            const conds = [];
+            const search = document.getElementById('k-search').value.trim();
+            if (search) conds.push(`(kostendrager ILIKE '%${esc(search)}%' OR budgethouder ILIKE '%${esc(search)}%')`);
+            const bh = document.getElementById('k-filter-bh').value;
+            if (bh) conds.push(`budgethouder = '${esc(bh)}'`);
+            return conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+        }
+
+        function kSelect() {
+            return `kostendrager, budgethouder, baten_2026, lasten_2026,
+                    (baten_2026 - lasten_2026) AS saldo_2026`;
+        }
+
+        function kRow(row) {
+            const tr = document.createElement('tr');
+            const saldo = row.saldo_2026;
+            const saldoClass = `num ${saldo >= 0 ? 'pos' : 'neg'}`;
+            tr.innerHTML = `
+                <td>${row.kostendrager}</td>
+                <td>${row.budgethouder}</td>
+                <td class="num">${fmt.format(row.baten_2026)}</td>
+                <td class="num">${fmt.format(row.lasten_2026)}</td>
+                <td class="${saldoClass}">${saldo >= 0 ? '+' : ''}${fmt.format(saldo)}</td>`;
+            return tr;
+        }
+
+        const renderK = makeTable({
+            file: 'kostendragers.parquet', tbodyId: 'k-tbody', tableId: 'k-tbl',
+            countId: 'k-row-count', pageInfoId: 'k-page-info',
+            firstId: 'k-first', prevId: 'k-prev', nextId: 'k-next', lastId: 'k-last',
+            pageSizeId: 'k-page-size', defaultSort: 'kostendrager',
+            buildWhere: kWhere, buildSelect: kSelect, renderRow: kRow,
+        });
+
+        let kTimer;
+        document.getElementById('k-search').addEventListener('input', () => {
+            clearTimeout(kTimer); kTimer = setTimeout(() => { renderK(); }, 250);
+        });
+        document.getElementById('k-filter-bh').addEventListener('change', () => renderK());
+
+        // ================================================================
         // Tabs
         // ================================================================
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -459,7 +536,7 @@
         // --- Show UI ---
         status.style.display = 'none';
         document.getElementById('app').style.display = '';
-        await Promise.all([renderP(), renderF()]);
+        await Promise.all([renderP(), renderF(), renderK()]);
     </script>
 </body>
 </html>
