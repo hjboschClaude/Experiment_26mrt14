@@ -114,3 +114,27 @@ df3 = pd.DataFrame({
 
 df3.to_parquet("kostendragers.parquet", index=False)
 print(f"Aangemaakt: kostendragers.parquet ({len(df3)} rijen, {len(df3.columns)} kolommen)")
+
+# --- Parquet 4: kostendrager_projecten (koppeltabel) ---
+# Elk project krijgt 1-3 kostendragers; alle 15 kostendragers komen voor.
+rng4 = np.random.default_rng(99)
+
+rows = []
+# Zorg eerst dat elke kostendrager minstens één project heeft (round-robin)
+shuffled = rng4.permutation(projectnummers)
+for i, kd in enumerate(kostendragers):
+    rows.append((kd, shuffled[i]))
+
+# Voeg daarna willekeurige extra koppelingen toe zodat elk project
+# gemiddeld 1-3 kostendragers heeft (totaal ~400-500 rijen)
+for pnr in projectnummers:
+    extra = int(rng4.integers(0, 3))  # 0, 1 of 2 extra kostendragers
+    if extra:
+        for kd in rng4.choice(kostendragers, extra, replace=False):
+            rows.append((kd, pnr))
+
+df4 = pd.DataFrame(rows, columns=["kostendrager", "projectnummer"])
+df4 = df4.drop_duplicates().sort_values(["kostendrager", "projectnummer"]).reset_index(drop=True)
+
+df4.to_parquet("kostendrager_projecten.parquet", index=False)
+print(f"Aangemaakt: kostendrager_projecten.parquet ({len(df4)} rijen, {len(df4.columns)} kolommen)")

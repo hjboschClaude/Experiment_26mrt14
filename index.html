@@ -155,6 +155,7 @@
             <button class="tab-btn active" data-tab="tab-projecten">Projecten</button>
             <button class="tab-btn"        data-tab="tab-financien">Financiën</button>
             <button class="tab-btn"        data-tab="tab-kostendragers">Kostendragers</button>
+            <button class="tab-btn"        data-tab="tab-kd-projecten">KD ↔ Projecten</button>
         </div>
 
         <!-- TAB 1: Projecten -->
@@ -235,6 +236,39 @@
                 </select>
             </div>
         </div>
+        <!-- TAB 4: KD ↔ Projecten -->
+        <div id="tab-kd-projecten" class="tab-panel">
+            <div class="controls">
+                <input type="search" id="kp-search" placeholder="Zoek project of kostendrager...">
+                <select id="kp-filter-kd"><option value="">Alle kostendragers</option></select>
+                <span class="row-count" id="kp-row-count"></span>
+            </div>
+            <div class="table-wrap">
+                <table id="kp-tbl">
+                    <thead><tr>
+                        <th data-col="kostendrager">Kostendrager<span class="si"></span></th>
+                        <th data-col="projectnummer">Projectnummer<span class="si"></span></th>
+                        <th data-col="projectnaam">Projectnaam<span class="si"></span></th>
+                        <th data-col="projectmanager">Projectmanager<span class="si"></span></th>
+                        <th data-col="type">Type<span class="si"></span></th>
+                    </tr></thead>
+                    <tbody id="kp-tbody"></tbody>
+                </table>
+            </div>
+            <div class="pagination">
+                <button id="kp-first">«</button>
+                <button id="kp-prev">‹</button>
+                <span class="page-info" id="kp-page-info"></span>
+                <button id="kp-next">›</button>
+                <button id="kp-last">»</button>
+                <select id="kp-page-size">
+                    <option value="25" selected>25 / pagina</option>
+                    <option value="50">50 / pagina</option>
+                    <option value="100">100 / pagina</option>
+                </select>
+            </div>
+        </div>
+
         <!-- TAB 3: Kostendragers -->
         <div id="tab-kostendragers" class="tab-panel">
             <div class="controls">
@@ -284,7 +318,7 @@
 
         // --- Load parquet files ---
         status.textContent = 'Parquet bestanden laden...';
-        for (const file of ['projecten.parquet', 'financien.parquet', 'kostendragers.parquet']) {
+        for (const file of ['projecten.parquet', 'financien.parquet', 'kostendragers.parquet', 'kostendrager_projecten.parquet']) {
             const buf = await (await fetch(file)).arrayBuffer();
             await db.registerFileBuffer(file, new Uint8Array(buf));
         }
@@ -304,6 +338,7 @@
             fillSelect('p-filter-dir', "SELECT DISTINCT \"verantwoordelijke directeur\" FROM 'projecten.parquet' ORDER BY 1", 'verantwoordelijke directeur'),
             fillSelect('p-filter-ao',  "SELECT DISTINCT \"ambtelijk opdrachtgever\" FROM 'projecten.parquet' ORDER BY 1", 'ambtelijk opdrachtgever'),
             fillSelect('k-filter-bh',  "SELECT DISTINCT budgethouder FROM 'kostendragers.parquet' ORDER BY 1", 'budgethouder'),
+            fillSelect('kp-filter-kd', "SELECT DISTINCT kostendrager FROM 'kostendrager_projecten.parquet' ORDER BY 1", 'kostendrager'),
         ]);
 
         // ================================================================
@@ -522,6 +557,96 @@
         document.getElementById('k-filter-bh').addEventListener('change', () => renderK());
 
         // ================================================================
+        // Tab 4 – KD ↔ Projecten  (JOIN op projecten.parquet)
+        // ================================================================
+        const KP_FILE = `kostendrager_projecten.parquet`;
+        const KP_JOIN = `JOIN 'projecten.parquet' p USING (projectnummer)`;
+
+        function kpWhere() {
+            const conds = [];
+            const search = document.getElementById('kp-search').value.trim();
+            if (search) conds.push(
+                `(kp.kostendrager ILIKE '%${esc(search)}%' OR kp.projectnummer ILIKE '%${esc(search)}%' OR p.projectnaam ILIKE '%${esc(search)}%' OR p.projectmanager ILIKE '%${esc(search)}%')`
+            );
+            const kd = document.getElementById('kp-filter-kd').value;
+            if (kd) conds.push(`kp.kostendrager = '${esc(kd)}'`);
+            return conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+        }
+
+        // makeTable werkt met één FROM-bestand; voor de JOIN gebruiken we een custom render
+        async function renderKP() {
+            const where = kpWhere();
+            const from  = `FROM '${KP_FILE}' kp ${KP_JOIN}`;
+
+            const countRes = await conn.query(`SELECT COUNT(*) AS n ${from} ${where}`);
+            const totalKP  = Number(countRes.toArray()[0].n);
+            const pageSizeKP = Number(document.getElementById('kp-page-size').value);
+            const totalPagesKP = Math.max(1, Math.ceil(totalKP / pageSizeKP));
+            if (renderKP._page > totalPagesKP) renderKP._page = totalPagesKP;
+
+            const offset = (renderKP._page - 1) * pageSizeKP;
+            const col = renderKP._col;
+            const dir = renderKP._dir;
+            const colSql = ['projectnaam','projectmanager','type'].includes(col) ? `p.${col}` : `kp.${col}`;
+
+            const rows = (await conn.query(
+                `SELECT kp.kostendrager, kp.projectnummer, p.projectnaam, p.projectmanager, p.type
+                 ${from} ${where}
+                 ORDER BY ${colSql} ${dir.toUpperCase()}
+                 LIMIT ${pageSizeKP} OFFSET ${offset}`
+            )).toArray();
+
+            const tbody = document.getElementById('kp-tbody');
+            tbody.innerHTML = '';
+            for (const row of rows) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${row.kostendrager}</td>
+                    <td>${row.projectnummer}</td>
+                    <td>${row.projectnaam}</td>
+                    <td>${row.projectmanager}</td>
+                    <td><span class="badge badge-${row.type}">${row.type}</span></td>`;
+                tbody.appendChild(tr);
+            }
+
+            document.querySelectorAll('#kp-tbl th').forEach(th => {
+                th.classList.remove('asc', 'desc');
+                if (th.dataset.col === col) th.classList.add(dir);
+            });
+            document.getElementById('kp-row-count').textContent = `${totalKP} rijen`;
+            document.getElementById('kp-page-info').textContent = `Pagina ${renderKP._page} van ${totalPagesKP}`;
+            document.getElementById('kp-first').disabled = renderKP._page === 1;
+            document.getElementById('kp-prev').disabled  = renderKP._page === 1;
+            document.getElementById('kp-next').disabled  = renderKP._page === totalPagesKP;
+            document.getElementById('kp-last').disabled  = renderKP._page === totalPagesKP;
+            renderKP._total = totalKP;
+            renderKP._pageSize = pageSizeKP;
+        }
+        renderKP._page = 1; renderKP._col = 'kostendrager'; renderKP._dir = 'asc';
+
+        document.querySelectorAll('#kp-tbl th[data-col]').forEach(th => {
+            th.addEventListener('click', () => {
+                renderKP._col === th.dataset.col
+                    ? (renderKP._dir = renderKP._dir === 'asc' ? 'desc' : 'asc')
+                    : (renderKP._col = th.dataset.col, renderKP._dir = 'asc');
+                renderKP._page = 1; renderKP();
+            });
+        });
+        document.getElementById('kp-first').addEventListener('click', () => { renderKP._page = 1; renderKP(); });
+        document.getElementById('kp-prev').addEventListener('click',  () => { renderKP._page--; renderKP(); });
+        document.getElementById('kp-next').addEventListener('click',  () => { renderKP._page++; renderKP(); });
+        document.getElementById('kp-last').addEventListener('click',  () => {
+            renderKP._page = Math.ceil(renderKP._total / renderKP._pageSize); renderKP();
+        });
+        document.getElementById('kp-page-size').addEventListener('change', () => { renderKP._page = 1; renderKP(); });
+
+        let kpTimer;
+        document.getElementById('kp-search').addEventListener('input', () => {
+            clearTimeout(kpTimer); kpTimer = setTimeout(() => { renderKP._page = 1; renderKP(); }, 250);
+        });
+        document.getElementById('kp-filter-kd').addEventListener('change', () => { renderKP._page = 1; renderKP(); });
+
+        // ================================================================
         // Tabs
         // ================================================================
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -536,7 +661,7 @@
         // --- Show UI ---
         status.style.display = 'none';
         document.getElementById('app').style.display = '';
-        await Promise.all([renderP(), renderF(), renderK()]);
+        await Promise.all([renderP(), renderF(), renderK(), renderKP()]);
     </script>
 </body>
 </html>
