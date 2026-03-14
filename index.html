@@ -1059,23 +1059,31 @@
             const mwId   = document.getElementById('pv-filter-mw').value;
             const pjId   = document.getElementById('pv-filter-pj').value;
 
-            // WHERE voor totaalregel (zonder projectfilter, want totaal = alle projecten)
-            const condsTotal = [`weeknummer LIKE '2026-%'`];
-            if (afd)  condsTotal.push(`afdeling = '${esc(afd)}'`);
-            if (team) condsTotal.push(`team = '${esc(team)}'`);
-            if (mwId) condsTotal.push(`werknemer_id = '${esc(mwId)}'`);
-            const whereTotal = `WHERE ${condsTotal.join(' AND ')}`;
+            // Basiscondities (altijd van toepassing)
+            const condsBase = [`weeknummer LIKE '2026-%'`];
+            if (afd)  condsBase.push(`afdeling = '${esc(afd)}'`);
+            if (team) condsBase.push(`team = '${esc(team)}'`);
+            if (mwId) condsBase.push(`werknemer_id = '${esc(mwId)}'`);
 
-            // WHERE voor projectsubrijen (wél projectfilter meenemen)
-            const condsDetail = [...condsTotal];
+            // Modus: alleen project geselecteerd → uren per medewerker op dat project
+            //        medewerker geselecteerd (al dan niet + project) → totaal per mw + subrijen
+            const projectModus = pjId && !mwId;
+
+            const condsHoofd = [...condsBase];
+            if (projectModus) condsHoofd.push(`projectnummer = '${esc(pjId)}'`);
+            const whereHoofd = `WHERE ${condsHoofd.join(' AND ')}`;
+
+            // WHERE voor project-subrijen (medewerker geselecteerd, eventueel gefilterd op project)
+            const condsDetail = [...condsBase];
             if (pjId) condsDetail.push(`projectnummer = '${esc(pjId)}'`);
             const whereDetail = `WHERE ${condsDetail.join(' AND ')}`;
 
-            // Totaaluren per medewerker per week (altijd over alle projecten)
+            // Hoofdquery: totaal per medewerker per week
+            // In projectModus: uren op het geselecteerde project; anders: alle projecten
             const resTotaal = await conn.query(`
                 SELECT werknemer_id, werknemer, weeknummer, SUM(uren) AS uren
                 FROM 'tijdschrijven.parquet'
-                ${whereTotal}
+                ${whereHoofd}
                 GROUP BY werknemer_id, werknemer, weeknummer
                 ORDER BY werknemer_id, weeknummer
             `);
@@ -1094,8 +1102,7 @@
                 .filter(([, v]) => !search || v.naam.toLowerCase().includes(search))
                 .sort(([a], [b]) => a.localeCompare(b));
 
-            // Uitsplitsing per project — alleen ophalen als één medewerker geselecteerd is
-            // Map: werknemer_id → [ { projectnummer, projectnaam, weken } ]
+            // Project-subrijen: alleen als één medewerker geselecteerd is
             let projectenMap = new Map();
             if (mwId) {
                 const resPj = await conn.query(`
@@ -1113,19 +1120,23 @@
                 }
             }
 
-            document.getElementById('pv-row-count').textContent =
-                `${medewerkers.length} medewerker${medewerkers.length !== 1 ? 's' : ''}` +
-                (mwId ? ` · ${projectenMap.size} project${projectenMap.size !== 1 ? 'en' : ''}` : '');
+            // Teller
+            let teller = `${medewerkers.length} medewerker${medewerkers.length !== 1 ? 's' : ''}`;
+            if (projectModus) teller += ` op ${pjId}`;
+            else if (mwId)    teller += ` · ${projectenMap.size} project${projectenMap.size !== 1 ? 'en' : ''}`;
+            document.getElementById('pv-row-count').textContent = teller;
 
-            // Kolomtotalen (over de gefilterde medewerkers en eventueel project)
+            // Kolomtotalen
             const weekTotaal = {};
-            const bron = pjId && mwId ? [...projectenMap.values()] : medewerkers.map(([,v]) => v);
-            for (const {weken} of bron) {
+            const bronTotaal = (pjId && mwId)
+                ? [...projectenMap.values()]       // geselecteerd project bij medewerker
+                : medewerkers.map(([, v]) => v);   // anders: hoofdrijen
+            for (const {weken} of bronTotaal) {
                 for (const wk of WEEKS_2026)
                     weekTotaal[wk] = (weekTotaal[wk] || 0) + (weken[wk] || 0);
             }
 
-            // Max uren voor kleurschaal (op totaalrijen)
+            // Max uren voor kleurschaal
             const allUren = medewerkers.flatMap(([, {weken}]) => Object.values(weken));
             const maxUren = allUren.length ? Math.max(...allUren) : 36;
 
@@ -1154,7 +1165,9 @@
             const tr1 = document.createElement('tr');
             const thName1 = document.createElement('th');
             thName1.className = 'col-name'; thName1.rowSpan = 2;
-            thName1.textContent = mwId ? 'Medewerker / Project' : 'Medewerker';
+            thName1.textContent = mwId ? 'Medewerker / Project'
+                                       : projectModus ? `Medewerker  ·  ${pjId}`
+                                       : 'Medewerker';
             tr1.appendChild(thName1);
             let lastMonth = null, curTh = null;
             for (const wk of WEEKS_2026) {
@@ -1184,8 +1197,8 @@
             const tbody = document.getElementById('pivot-tbody');
             tbody.innerHTML = '';
             for (const [id, {naam, weken}] of medewerkers) {
-                // Totaalrij medewerker
-                const totaalClass = mwId ? 'row-total' : '';
+                // Totaalrij medewerker (in projectModus: uren op dat project, anders totaal)
+                const totaalClass = (mwId || projectModus) ? 'row-total' : '';
                 tbody.appendChild(maakRij(naam, weken, totaalClass, maxUren));
 
                 // Projectsubrijen — alleen als deze medewerker geselecteerd is
@@ -1207,7 +1220,9 @@
             const tfTr = document.createElement('tr');
             const tfName = document.createElement('td');
             tfName.className = 'col-name';
-            tfName.textContent = mwId && pjId ? `Totaal ${pjId}` : 'Totaal';
+            tfName.textContent = projectModus ? `Totaal ${pjId}`
+                                              : (mwId && pjId) ? `Totaal ${pjId}`
+                                              : 'Totaal';
             tfTr.appendChild(tfName);
             for (const wk of WEEKS_2026) {
                 const td = document.createElement('td');
