@@ -138,3 +138,69 @@ df4 = df4.drop_duplicates().sort_values(["kostendrager", "projectnummer"]).reset
 
 df4.to_parquet("kostendrager_projecten.parquet", index=False)
 print(f"Aangemaakt: kostendrager_projecten.parquet ({len(df4)} rijen, {len(df4.columns)} kolommen)")
+
+# --- Parquet 5: tijdschrijven ---
+# 100 werknemers, weeknummers 2024-W01 t/m 2025-W52
+# Elke werknemer schrijft op 1-6 projecten; max 36 uur/week totaal.
+rng5 = np.random.default_rng(17)
+
+werknemers = [f"W-{i:03d}" for i in range(1, 101)]
+
+# Voornamen + achternamen voor leesbaarheid
+voornamen = ["Emma","Liam","Olivia","Noah","Ava","Elijah","Sophia","Lucas","Isabella","Mason",
+             "Mia","Ethan","Amelia","Aiden","Luna","Caden","Aria","Grayson","Chloe","Jackson",
+             "Layla","Sebastian","Riley","Mateo","Zoey","Jack","Nora","Owen","Lily","Wyatt",
+             "Eleanor","John","Hannah","David","Lillian","Joseph","Addison","Samuel","Aubrey",
+             "Carter","Ellie","Luke","Stella","Julian","Natalie","Levi","Zoe","Isaac","Leah",
+             "Anthony","Hazel","Dylan","Violet","Lincoln","Aurora","Jaxon","Savannah","Asher",
+             "Audrey","Christopher","Brooklyn","Joshua","Bella","Andrew","Claire","Theodore",
+             "Skylar","Caleb","Lucy","Ryan","Paisley","Nathan","Everly","Aaron","Anna","Isaiah",
+             "Caroline","Thomas","Nova","Charles","Genesis","Josiah","Emilia","Christian","Kennedy",
+             "Hunter","Samantha","Eli","Maya","Jonathan","Willow","Connor","Kinsley","Landon","Naomi"]
+achternamen = ["Jansen","de Vries","van den Berg","van Dijk","Bakker","Janssen","Visser","Smit",
+               "Meijer","de Boer","Mulder","de Groot","Bos","Vos","Peters","Hendriks","van Leeuwen",
+               "Dekker","Brouwer","de Wit","Dijkstra","Smits","Jacobs","de Jong","van der Meer"]
+
+werknemer_namen = {}
+for i, w in enumerate(werknemers):
+    vn = voornamen[i % len(voornamen)]
+    an = achternamen[rng5.integers(0, len(achternamen))]
+    werknemer_namen[w] = f"{vn} {an}"
+
+# Wijs per werknemer 1-6 projecten toe
+werknemer_projecten = {}
+for w in werknemers:
+    k = int(rng5.integers(1, 7))
+    werknemer_projecten[w] = list(rng5.choice(projectnummers, k, replace=False))
+
+# Genereer weeknummers: 2024-W01 t/m 2025-W52
+import datetime
+weeknummers = []
+for jaar in [2024, 2025]:
+    for wk in range(1, 53):
+        weeknummers.append(f"{jaar}-W{wk:02d}")
+
+# Bouw tijdschrijven-rijen
+ts_rows = []
+for w in werknemers:
+    projecten_w = werknemer_projecten[w]
+    np_w = len(projecten_w)
+    for week in weeknummers:
+        # ~75% kans dat er uren worden geschreven in deze week
+        if rng5.random() > 0.75:
+            continue
+        # Totaal uren deze week: 8-36
+        totaal = int(rng5.integers(8, 37))
+        # Verdeel over projecten (Dirichlet-achtig via uniforme verdeling)
+        cuts = sorted(rng5.integers(0, totaal + 1, np_w - 1).tolist()) if np_w > 1 else []
+        grenzen = [0] + cuts + [totaal]
+        uren_per_project = [grenzen[i+1] - grenzen[i] for i in range(np_w)]
+        for pnr, uren in zip(projecten_w, uren_per_project):
+            if uren > 0:
+                ts_rows.append((w, werknemer_namen[w], week, pnr, uren))
+
+df5 = pd.DataFrame(ts_rows, columns=["werknemer_id", "werknemer", "weeknummer", "projectnummer", "uren"])
+df5 = df5.sort_values(["weeknummer", "werknemer_id", "projectnummer"]).reset_index(drop=True)
+
+df5.to_parquet("tijdschrijven.parquet", index=False)
+print(f"Aangemaakt: tijdschrijven.parquet ({len(df5)} rijen, {len(df5.columns)} kolommen)")

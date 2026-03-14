@@ -156,6 +156,8 @@
             <button class="tab-btn"        data-tab="tab-financien">Financiën</button>
             <button class="tab-btn"        data-tab="tab-kostendragers">Kostendragers</button>
             <button class="tab-btn"        data-tab="tab-kd-projecten">KD ↔ Projecten</button>
+            <button class="tab-btn"        data-tab="tab-tijdschrijven">Tijdschrijven</button>
+            <button class="tab-btn"        data-tab="tab-uren-project">Uren per project</button>
         </div>
 
         <!-- TAB 1: Projecten -->
@@ -269,6 +271,71 @@
             </div>
         </div>
 
+        <!-- TAB 5: Tijdschrijven -->
+        <div id="tab-tijdschrijven" class="tab-panel">
+            <div class="controls">
+                <input type="search" id="ts-search" placeholder="Zoek werknemer of project...">
+                <select id="ts-filter-week"><option value="">Alle weken</option></select>
+                <span class="row-count" id="ts-row-count"></span>
+            </div>
+            <div class="table-wrap">
+                <table id="ts-tbl">
+                    <thead><tr>
+                        <th data-col="weeknummer">Week<span class="si"></span></th>
+                        <th data-col="werknemer_id">ID<span class="si"></span></th>
+                        <th data-col="werknemer">Werknemer<span class="si"></span></th>
+                        <th data-col="projectnummer">Projectnummer<span class="si"></span></th>
+                        <th data-col="uren">Uren<span class="si"></span></th>
+                    </tr></thead>
+                    <tbody id="ts-tbody"></tbody>
+                </table>
+            </div>
+            <div class="pagination">
+                <button id="ts-first">«</button>
+                <button id="ts-prev">‹</button>
+                <span class="page-info" id="ts-page-info"></span>
+                <button id="ts-next">›</button>
+                <button id="ts-last">»</button>
+                <select id="ts-page-size">
+                    <option value="25" selected>25 / pagina</option>
+                    <option value="50">50 / pagina</option>
+                    <option value="100">100 / pagina</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- TAB 6: Uren per project -->
+        <div id="tab-uren-project" class="tab-panel">
+            <div class="controls">
+                <input type="search" id="up-search" placeholder="Zoek projectnummer...">
+                <select id="up-filter-week"><option value="">Alle weken</option></select>
+                <span class="row-count" id="up-row-count"></span>
+            </div>
+            <div class="table-wrap">
+                <table id="up-tbl">
+                    <thead><tr>
+                        <th data-col="projectnummer">Projectnummer<span class="si"></span></th>
+                        <th data-col="projectnaam">Projectnaam<span class="si"></span></th>
+                        <th data-col="aantal_werknemers">Werknemers<span class="si"></span></th>
+                        <th data-col="totaal_uren">Totaal uren<span class="si"></span></th>
+                    </tr></thead>
+                    <tbody id="up-tbody"></tbody>
+                </table>
+            </div>
+            <div class="pagination">
+                <button id="up-first">«</button>
+                <button id="up-prev">‹</button>
+                <span class="page-info" id="up-page-info"></span>
+                <button id="up-next">›</button>
+                <button id="up-last">»</button>
+                <select id="up-page-size">
+                    <option value="25" selected>25 / pagina</option>
+                    <option value="50">50 / pagina</option>
+                    <option value="100">100 / pagina</option>
+                </select>
+            </div>
+        </div>
+
         <!-- TAB 3: Kostendragers -->
         <div id="tab-kostendragers" class="tab-panel">
             <div class="controls">
@@ -318,7 +385,7 @@
 
         // --- Load parquet files ---
         status.textContent = 'Parquet bestanden laden...';
-        for (const file of ['projecten.parquet', 'financien.parquet', 'kostendragers.parquet', 'kostendrager_projecten.parquet']) {
+        for (const file of ['projecten.parquet', 'financien.parquet', 'kostendragers.parquet', 'kostendrager_projecten.parquet', 'tijdschrijven.parquet']) {
             const buf = await (await fetch(file)).arrayBuffer();
             await db.registerFileBuffer(file, new Uint8Array(buf));
         }
@@ -339,6 +406,8 @@
             fillSelect('p-filter-ao',  "SELECT DISTINCT \"ambtelijk opdrachtgever\" FROM 'projecten.parquet' ORDER BY 1", 'ambtelijk opdrachtgever'),
             fillSelect('k-filter-bh',  "SELECT DISTINCT budgethouder FROM 'kostendragers.parquet' ORDER BY 1", 'budgethouder'),
             fillSelect('kp-filter-kd', "SELECT DISTINCT kostendrager FROM 'kostendrager_projecten.parquet' ORDER BY 1", 'kostendrager'),
+            fillSelect('ts-filter-week', "SELECT DISTINCT weeknummer FROM 'tijdschrijven.parquet' ORDER BY 1", 'weeknummer'),
+            fillSelect('up-filter-week', "SELECT DISTINCT weeknummer FROM 'tijdschrijven.parquet' ORDER BY 1", 'weeknummer'),
         ]);
 
         // ================================================================
@@ -647,6 +716,120 @@
         document.getElementById('kp-filter-kd').addEventListener('change', () => { renderKP._page = 1; renderKP(); });
 
         // ================================================================
+        // Tab 5 – Tijdschrijven
+        // ================================================================
+        const renderTS = makeTable({
+            file: 'tijdschrijven.parquet', tbodyId: 'ts-tbody', tableId: 'ts-tbl',
+            countId: 'ts-row-count', pageInfoId: 'ts-page-info',
+            firstId: 'ts-first', prevId: 'ts-prev', nextId: 'ts-next', lastId: 'ts-last',
+            pageSizeId: 'ts-page-size', defaultSort: 'weeknummer',
+            buildWhere() {
+                const conds = [];
+                const s = document.getElementById('ts-search').value.trim();
+                if (s) conds.push(`(werknemer ILIKE '%${esc(s)}%' OR werknemer_id ILIKE '%${esc(s)}%' OR projectnummer ILIKE '%${esc(s)}%')`);
+                const wk = document.getElementById('ts-filter-week').value;
+                if (wk) conds.push(`weeknummer = '${esc(wk)}'`);
+                return conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+            },
+            renderRow(row) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${row.weeknummer}</td>
+                    <td>${row.werknemer_id}</td>
+                    <td>${row.werknemer}</td>
+                    <td>${row.projectnummer}</td>
+                    <td class="num">${row.uren}</td>`;
+                return tr;
+            },
+        });
+        let tsTimer;
+        document.getElementById('ts-search').addEventListener('input', () => {
+            clearTimeout(tsTimer); tsTimer = setTimeout(() => renderTS(), 250);
+        });
+        document.getElementById('ts-filter-week').addEventListener('change', () => renderTS());
+
+        // ================================================================
+        // Tab 6 – Uren per project  (aggregatie via DuckDB JOIN)
+        // ================================================================
+        async function renderUP() {
+            const s   = document.getElementById('up-search').value.trim();
+            const wk  = document.getElementById('up-filter-week').value;
+            const psz = Number(document.getElementById('up-page-size').value);
+
+            const conds = [];
+            if (s)  conds.push(`t.projectnummer ILIKE '%${esc(s)}%' OR p.projectnaam ILIKE '%${esc(s)}%'`);
+            if (wk) conds.push(`t.weeknummer = '${esc(wk)}'`);
+            const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+
+            const col = renderUP._col, dir = renderUP._dir;
+            const aggSql = `
+                SELECT t.projectnummer,
+                       p.projectnaam,
+                       COUNT(DISTINCT t.werknemer_id) AS aantal_werknemers,
+                       SUM(t.uren)                    AS totaal_uren
+                FROM 'tijdschrijven.parquet' t
+                JOIN 'projecten.parquet' p USING (projectnummer)
+                ${where}
+                GROUP BY t.projectnummer, p.projectnaam`;
+
+            const countRes = await conn.query(`SELECT COUNT(*) AS n FROM (${aggSql})`);
+            const total    = Number(countRes.toArray()[0].n);
+            const totalPg  = Math.max(1, Math.ceil(total / psz));
+            if (renderUP._page > totalPg) renderUP._page = totalPg;
+
+            const offset = (renderUP._page - 1) * psz;
+            const rows = (await conn.query(
+                `${aggSql} ORDER BY "${col}" ${dir.toUpperCase()} LIMIT ${psz} OFFSET ${offset}`
+            )).toArray();
+
+            const tbody = document.getElementById('up-tbody');
+            tbody.innerHTML = '';
+            for (const row of rows) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${row.projectnummer}</td>
+                    <td>${row.projectnaam}</td>
+                    <td class="num">${row.aantal_werknemers}</td>
+                    <td class="num">${row.totaal_uren}</td>`;
+                tbody.appendChild(tr);
+            }
+
+            document.querySelectorAll('#up-tbl th').forEach(th => {
+                th.classList.remove('asc','desc');
+                if (th.dataset.col === col) th.classList.add(dir);
+            });
+            document.getElementById('up-row-count').textContent = `${total} rijen`;
+            document.getElementById('up-page-info').textContent = `Pagina ${renderUP._page} van ${totalPg}`;
+            document.getElementById('up-first').disabled = renderUP._page === 1;
+            document.getElementById('up-prev').disabled  = renderUP._page === 1;
+            document.getElementById('up-next').disabled  = renderUP._page === totalPg;
+            document.getElementById('up-last').disabled  = renderUP._page === totalPg;
+            renderUP._total = total; renderUP._psz = psz;
+        }
+        renderUP._page = 1; renderUP._col = 'totaal_uren'; renderUP._dir = 'desc';
+
+        document.querySelectorAll('#up-tbl th[data-col]').forEach(th => {
+            th.addEventListener('click', () => {
+                renderUP._col === th.dataset.col
+                    ? (renderUP._dir = renderUP._dir === 'asc' ? 'desc' : 'asc')
+                    : (renderUP._col = th.dataset.col, renderUP._dir = 'asc');
+                renderUP._page = 1; renderUP();
+            });
+        });
+        document.getElementById('up-first').addEventListener('click', () => { renderUP._page = 1; renderUP(); });
+        document.getElementById('up-prev').addEventListener('click',  () => { renderUP._page--; renderUP(); });
+        document.getElementById('up-next').addEventListener('click',  () => { renderUP._page++; renderUP(); });
+        document.getElementById('up-last').addEventListener('click',  () => {
+            renderUP._page = Math.ceil(renderUP._total / renderUP._psz); renderUP();
+        });
+        document.getElementById('up-page-size').addEventListener('change', () => { renderUP._page = 1; renderUP(); });
+        let upTimer;
+        document.getElementById('up-search').addEventListener('input', () => {
+            clearTimeout(upTimer); upTimer = setTimeout(() => { renderUP._page = 1; renderUP(); }, 250);
+        });
+        document.getElementById('up-filter-week').addEventListener('change', () => { renderUP._page = 1; renderUP(); });
+
+        // ================================================================
         // Tabs
         // ================================================================
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -661,7 +844,7 @@
         // --- Show UI ---
         status.style.display = 'none';
         document.getElementById('app').style.display = '';
-        await Promise.all([renderP(), renderF(), renderK(), renderKP()]);
+        await Promise.all([renderP(), renderF(), renderK(), renderKP(), renderTS(), renderUP()]);
     </script>
 </body>
 </html>
