@@ -3,9 +3,337 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello</title>
+    <title>Projecten</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: system-ui, sans-serif;
+            background: #f5f6fa;
+            color: #222;
+            padding: 24px;
+        }
+
+        h1 { margin-bottom: 16px; font-size: 1.5rem; }
+
+        #controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 16px;
+            align-items: center;
+        }
+
+        #search {
+            padding: 7px 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            width: 220px;
+        }
+
+        select {
+            padding: 7px 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            background: #fff;
+        }
+
+        #row-count {
+            margin-left: auto;
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        #status {
+            padding: 12px;
+            background: #e8f0fe;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 0.9rem;
+            color: #1a4f9e;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+            border-radius: 8px;
+            box-shadow: 0 1px 4px rgba(0,0,0,.1);
+            background: #fff;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+
+        thead tr {
+            background: #2c3e50;
+            color: #fff;
+        }
+
+        th {
+            padding: 10px 14px;
+            text-align: left;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        th:hover { background: #3d5166; }
+
+        th .sort-icon { margin-left: 5px; opacity: .5; font-size: .75rem; }
+        th.asc  .sort-icon::after { content: '▲'; opacity: 1; }
+        th.desc .sort-icon::after { content: '▼'; opacity: 1; }
+        th:not(.asc):not(.desc) .sort-icon::after { content: '⇅'; }
+
+        tbody tr:nth-child(even) { background: #f9f9f9; }
+        tbody tr:hover { background: #eef3fb; }
+
+        td { padding: 8px 14px; border-bottom: 1px solid #eee; white-space: nowrap; }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+        .badge-uren           { background: #dbeafe; color: #1d4ed8; }
+        .badge-regulier       { background: #dcfce7; color: #166534; }
+        .badge-subsidie       { background: #fef9c3; color: #854d0e; }
+        .badge-grondexploitatie { background: #fce7f3; color: #9d174d; }
+
+        #pagination {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 14px;
+            justify-content: center;
+        }
+
+        #pagination button {
+            padding: 5px 12px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+
+        #pagination button:disabled { opacity: .4; cursor: default; }
+        #pagination button:not(:disabled):hover { background: #eef3fb; }
+        #page-info { font-size: 0.85rem; color: #555; }
+    </style>
 </head>
 <body>
-    <h1>Hello, World!</h1>
+    <h1>Projectenoverzicht</h1>
+
+    <div id="status">DuckDB-WASM laden...</div>
+
+    <div id="controls" style="display:none">
+        <input id="search" type="search" placeholder="Zoeken...">
+
+        <select id="filter-type">
+            <option value="">Alle types</option>
+            <option value="uren">Uren</option>
+            <option value="regulier">Regulier</option>
+            <option value="subsidie">Subsidie</option>
+            <option value="grondexploitatie">Grondexploitatie</option>
+        </select>
+
+        <select id="filter-pm">
+            <option value="">Alle projectmanagers</option>
+        </select>
+
+        <span id="row-count"></span>
+    </div>
+
+    <div class="table-wrap" id="table-wrap" style="display:none">
+        <table id="tbl">
+            <thead>
+                <tr>
+                    <th data-col="projectnummer">Projectnummer<span class="sort-icon"></span></th>
+                    <th data-col="projectnaam">Projectnaam<span class="sort-icon"></span></th>
+                    <th data-col="startdatum">Startdatum<span class="sort-icon"></span></th>
+                    <th data-col="einddatum">Einddatum<span class="sort-icon"></span></th>
+                    <th data-col="projectmanager">Projectmanager<span class="sort-icon"></span></th>
+                    <th data-col="type">Type<span class="sort-icon"></span></th>
+                </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+        </table>
+    </div>
+
+    <div id="pagination" style="display:none">
+        <button id="btn-first">«</button>
+        <button id="btn-prev">‹</button>
+        <span id="page-info"></span>
+        <button id="btn-next">›</button>
+        <button id="btn-last">»</button>
+        <select id="page-size">
+            <option value="25" selected>25 / pagina</option>
+            <option value="50">50 / pagina</option>
+            <option value="100">100 / pagina</option>
+        </select>
+    </div>
+
+    <script type="module">
+        import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
+
+        const BUNDLES = duckdb.getJsDelivrBundles();
+
+        const status   = document.getElementById('status');
+        const controls = document.getElementById('controls');
+        const tableWrap = document.getElementById('table-wrap');
+        const pagination = document.getElementById('pagination');
+
+        // --- Init DuckDB ---
+        status.textContent = 'DuckDB-WASM initialiseren...';
+        const bundle = await duckdb.selectBundle(BUNDLES);
+        const workerUrl = URL.createObjectURL(
+            new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' })
+        );
+        const worker = new Worker(workerUrl);
+        const logger = new duckdb.ConsoleLogger();
+        const db = new duckdb.AsyncDuckDB(logger, worker);
+        await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+
+        // --- Load parquet ---
+        status.textContent = 'Parquet bestand laden...';
+        const resp = await fetch('projecten.parquet');
+        const buf  = await resp.arrayBuffer();
+        await db.registerFileBuffer('projecten.parquet', new Uint8Array(buf));
+
+        const conn = await db.connect();
+
+        // --- Populate PM filter ---
+        const pmResult = await conn.query(
+            "SELECT DISTINCT projectmanager FROM 'projecten.parquet' ORDER BY projectmanager"
+        );
+        const pmSelect = document.getElementById('filter-pm');
+        for (const row of pmResult.toArray()) {
+            const opt = document.createElement('option');
+            opt.value = opt.textContent = row.projectmanager;
+            pmSelect.appendChild(opt);
+        }
+
+        // --- State ---
+        let sortCol = 'projectnummer';
+        let sortDir = 'asc';
+        let page    = 1;
+        let pageSize = 25;
+        let totalRows = 0;
+
+        function buildQuery(forCount = false) {
+            const search  = document.getElementById('search').value.trim();
+            const typeVal = document.getElementById('filter-type').value;
+            const pmVal   = document.getElementById('filter-pm').value;
+
+            const conditions = [];
+            if (search) {
+                const s = search.replace(/'/g, "''");
+                conditions.push(`(projectnummer ILIKE '%${s}%' OR projectnaam ILIKE '%${s}%' OR projectmanager ILIKE '%${s}%')`);
+            }
+            if (typeVal) conditions.push(`type = '${typeVal.replace(/'/g,"''")}'`);
+            if (pmVal)   conditions.push(`projectmanager = '${pmVal.replace(/'/g,"''")}'`);
+
+            const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+            if (forCount) return `SELECT COUNT(*) AS n FROM 'projecten.parquet' ${where}`;
+
+            const offset = (page - 1) * pageSize;
+            return `SELECT * FROM 'projecten.parquet' ${where}
+                    ORDER BY "${sortCol}" ${sortDir.toUpperCase()}
+                    LIMIT ${pageSize} OFFSET ${offset}`;
+        }
+
+        async function render() {
+            const countRes = await conn.query(buildQuery(true));
+            totalRows = Number(countRes.toArray()[0].n);
+
+            const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+            if (page > totalPages) page = totalPages;
+
+            const result = await conn.query(buildQuery(false));
+            const rows   = result.toArray();
+
+            const tbody = document.getElementById('tbody');
+            tbody.innerHTML = '';
+            for (const row of rows) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${row.projectnummer}</td>
+                    <td>${row.projectnaam}</td>
+                    <td>${row.startdatum}</td>
+                    <td>${row.einddatum}</td>
+                    <td>${row.projectmanager}</td>
+                    <td><span class="badge badge-${row.type}">${row.type}</span></td>
+                `;
+                tbody.appendChild(tr);
+            }
+
+            // Sort icons
+            document.querySelectorAll('th').forEach(th => {
+                th.classList.remove('asc', 'desc');
+                if (th.dataset.col === sortCol) th.classList.add(sortDir);
+            });
+
+            // Row count
+            document.getElementById('row-count').textContent =
+                `${totalRows} rij${totalRows !== 1 ? 'en' : ''}`;
+
+            // Pagination
+            const pageInfo = document.getElementById('page-info');
+            pageInfo.textContent = `Pagina ${page} van ${totalPages}`;
+            document.getElementById('btn-first').disabled = page === 1;
+            document.getElementById('btn-prev').disabled  = page === 1;
+            document.getElementById('btn-next').disabled  = page === totalPages;
+            document.getElementById('btn-last').disabled  = page === totalPages;
+            document.getElementById('btn-last')._total    = totalPages;
+        }
+
+        // --- Event listeners ---
+        document.querySelectorAll('th[data-col]').forEach(th => {
+            th.addEventListener('click', () => {
+                if (sortCol === th.dataset.col) {
+                    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    sortCol = th.dataset.col;
+                    sortDir = 'asc';
+                }
+                page = 1;
+                render();
+            });
+        });
+
+        let searchTimer;
+        document.getElementById('search').addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => { page = 1; render(); }, 250);
+        });
+
+        document.getElementById('filter-type').addEventListener('change', () => { page = 1; render(); });
+        document.getElementById('filter-pm').addEventListener('change',   () => { page = 1; render(); });
+
+        document.getElementById('btn-first').addEventListener('click', () => { page = 1; render(); });
+        document.getElementById('btn-prev').addEventListener('click',  () => { page--; render(); });
+        document.getElementById('btn-next').addEventListener('click',  () => { page++; render(); });
+        document.getElementById('btn-last').addEventListener('click',  () => {
+            page = Math.ceil(totalRows / pageSize); render();
+        });
+        document.getElementById('page-size').addEventListener('change', e => {
+            pageSize = Number(e.target.value); page = 1; render();
+        });
+
+        // --- Show UI ---
+        status.style.display = 'none';
+        controls.style.display  = 'flex';
+        tableWrap.style.display = '';
+        pagination.style.display = 'flex';
+
+        render();
+    </script>
 </body>
 </html>
