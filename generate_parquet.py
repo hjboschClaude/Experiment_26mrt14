@@ -133,8 +133,11 @@ for pnr in projectnummers:
         for kd in rng4.choice(kostendragers, extra, replace=False):
             rows.append((kd, pnr))
 
+projectrollen = ["Opdrachtgever", "Opdrachtnemer", "Adviseur", "Financier", "Uitvoerder"]
+
 df4 = pd.DataFrame(rows, columns=["kostendrager", "projectnummer"])
 df4 = df4.drop_duplicates().sort_values(["kostendrager", "projectnummer"]).reset_index(drop=True)
+df4["projectrol"] = rng4.choice(projectrollen, len(df4))
 
 df4.to_parquet("kostendrager_projecten.parquet", index=False)
 print(f"Aangemaakt: kostendrager_projecten.parquet ({len(df4)} rijen, {len(df4.columns)} kolommen)")

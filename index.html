@@ -145,6 +145,41 @@
         .pagination button:not(:disabled):hover { background: #eef3fb; }
         .page-info { font-size: 0.85rem; color: #555; }
 
+        /* KD Detail – toggle kolom & subrijen */
+        th.col-toggle, td.col-toggle {
+            width: 32px; text-align: center; padding: 4px 6px;
+            cursor: pointer; user-select: none;
+        }
+        th.col-toggle { border-right: 1px solid rgba(255,255,255,.15); }
+        td.col-toggle { border-right: 1px solid #eee; color: #6b7280; font-size: .8rem; }
+        th.num-h { text-align: right; }
+
+        tr.kd-subrow td {
+            background: #f4f8ff;
+            font-size: .82rem;
+            color: #444;
+            border-bottom: 1px solid #e8eef8;
+        }
+        tr.kd-subrow td:first-child { border-right: 3px solid #93c5fd; }
+        tr.kd-subrow td.sub-label {
+            padding-left: 28px;
+            color: #1e4080;
+            font-weight: 500;
+        }
+        tr.kd-subrow td.sub-label::before { content: '↳ '; opacity: .45; }
+        tr.kd-subrow:hover td { background: #dbeafe; }
+
+        tr.kd-main td { font-weight: 500; }
+        tr.kd-main.open td { background: #f0f6ff; }
+        tr.kd-main.open td.col-toggle { color: #1d4ed8; }
+
+        /* Projectrol badges */
+        .rol-opdrachtgever  { background: #dbeafe; color: #1d4ed8; }
+        .rol-opdrachtnemer  { background: #dcfce7; color: #166534; }
+        .rol-adviseur       { background: #fef9c3; color: #854d0e; }
+        .rol-financier      { background: #fce7f3; color: #9d174d; }
+        .rol-uitvoerder     { background: #ede9fe; color: #5b21b6; }
+
         /* Pivot tabel */
         .pivot-wrap {
             overflow: auto;
@@ -242,6 +277,7 @@
             <button class="tab-btn"        data-tab="tab-financien">Financiën</button>
             <button class="tab-btn"        data-tab="tab-kostendragers">Kostendragers</button>
             <button class="tab-btn"        data-tab="tab-kd-projecten">KD ↔ Projecten</button>
+            <button class="tab-btn"        data-tab="tab-kd-detail">KD Detail</button>
             <button class="tab-btn"        data-tab="tab-tijdschrijven">Tijdschrijven</button>
             <button class="tab-btn"        data-tab="tab-uren-project">Uren per project</button>
             <button class="tab-btn"        data-tab="tab-pivot-2026">Uren per week 2026</button>
@@ -355,6 +391,30 @@
                     <option value="50">50 / pagina</option>
                     <option value="100">100 / pagina</option>
                 </select>
+            </div>
+        </div>
+
+        <!-- TAB KD Detail: Kostendragers met inklapbare projectsubrijen -->
+        <div id="tab-kd-detail" class="tab-panel">
+            <div class="controls">
+                <input type="search" id="kd-search" placeholder="Zoek kostendrager of budgethouder...">
+                <select id="kd-filter-bh"><option value="">Alle budgethouders</option></select>
+                <select id="kd-filter-rol"><option value="">Alle projectrollen</option></select>
+                <span class="row-count" id="kd-row-count"></span>
+            </div>
+            <div class="table-wrap">
+                <table id="kd-tbl">
+                    <thead><tr>
+                        <th class="col-toggle"></th>
+                        <th data-col="kostendrager">Kostendrager / Project<span class="si"></span></th>
+                        <th data-col="budgethouder">Budgethouder / Rol<span class="si"></span></th>
+                        <th data-col="baten_2026" class="num-h">Baten 2026 / Projectmanager<span class="si"></span></th>
+                        <th data-col="lasten_2026" class="num-h">Lasten 2026 / Type<span class="si"></span></th>
+                        <th data-col="saldo_2026" class="num-h">Saldo 2026<span class="si"></span></th>
+                        <th data-col="aantal_projecten" class="num-h"># Projecten<span class="si"></span></th>
+                    </tr></thead>
+                    <tbody id="kd-tbody"></tbody>
+                </table>
             </div>
         </div>
 
@@ -1279,6 +1339,139 @@
         });
 
         // ================================================================
+        // Tab KD Detail – kostendragers met inklapbare projectsubrijen
+        // ================================================================
+        await fillSelect('kd-filter-bh',
+            "SELECT DISTINCT budgethouder FROM 'kostendragers.parquet' ORDER BY 1", 'budgethouder');
+        await fillSelect('kd-filter-rol',
+            "SELECT DISTINCT projectrol FROM 'kostendrager_projecten.parquet' ORDER BY 1", 'projectrol');
+
+        const kdIngeklapt = new Set();  // kostendragers waarvan subrijen verborgen zijn
+        let kdEersteRender = true;
+
+        async function renderKDDetail() {
+            const search = document.getElementById('kd-search').value.trim().toLowerCase();
+            const bh     = document.getElementById('kd-filter-bh').value;
+            const rol    = document.getElementById('kd-filter-rol').value;
+
+            // Haal alle kostendragers op (met saldo en projecttelling)
+            const kdConds = [];
+            if (search) kdConds.push(`(LOWER(k.kostendrager) LIKE '%${esc(search)}%' OR LOWER(k.budgethouder) LIKE '%${esc(search)}%')`);
+            if (bh)     kdConds.push(`k.budgethouder = '${esc(bh)}'`);
+            const kdWhere = kdConds.length ? `WHERE ${kdConds.join(' AND ')}` : '';
+
+            // Projecttelling per kostendrager (optioneel gefilterd op rol)
+            const rolFilter = rol ? `AND kp.projectrol = '${esc(rol)}'` : '';
+            const kdRows = (await conn.query(`
+                SELECT k.kostendrager, k.budgethouder,
+                       k.baten_2026, k.lasten_2026,
+                       (k.baten_2026 - k.lasten_2026) AS saldo_2026,
+                       COUNT(kp.projectnummer) AS aantal_projecten
+                FROM 'kostendragers.parquet' k
+                LEFT JOIN 'kostendrager_projecten.parquet' kp
+                    ON k.kostendrager = kp.kostendrager ${rolFilter}
+                ${kdWhere}
+                GROUP BY k.kostendrager, k.budgethouder, k.baten_2026, k.lasten_2026
+                ORDER BY k.kostendrager
+            `)).toArray();
+
+            // Haal alle project-subrijen op voor zichtbare kostendragers
+            const zichtbareKD = kdRows.map(r => `'${esc(r.kostendrager)}'`).join(',');
+            const pjConds = zichtbareKD ? [`kp.kostendrager IN (${zichtbareKD})`] : ['1=0'];
+            if (rol) pjConds.push(`kp.projectrol = '${esc(rol)}'`);
+            const pjRows = zichtbareKD ? (await conn.query(`
+                SELECT kp.kostendrager, kp.projectnummer, kp.projectrol,
+                       p.projectnaam, p.projectmanager, p.type
+                FROM 'kostendrager_projecten.parquet' kp
+                JOIN 'projecten.parquet' p USING (projectnummer)
+                WHERE ${pjConds.join(' AND ')}
+                ORDER BY kp.kostendrager, kp.projectnummer
+            `)).toArray() : [];
+
+            // Groepeer projecten per kostendrager
+            const pjMap = new Map();
+            for (const r of pjRows) {
+                if (!pjMap.has(r.kostendrager)) pjMap.set(r.kostendrager, []);
+                pjMap.get(r.kostendrager).push(r);
+            }
+
+            // Eerste render: alles standaard ingeklapt
+            if (kdEersteRender) {
+                kdRows.forEach(r => kdIngeklapt.add(r.kostendrager));
+                kdEersteRender = false;
+            }
+
+            document.getElementById('kd-row-count').textContent =
+                `${kdRows.length} kostendrager${kdRows.length !== 1 ? 's' : ''}`;
+
+            const tbody = document.getElementById('kd-tbody');
+            tbody.innerHTML = '';
+
+            for (const kd of kdRows) {
+                const naam    = kd.kostendrager;
+                const projecten = pjMap.get(naam) || [];
+                const isOpen  = !kdIngeklapt.has(naam);
+                const saldo   = Number(kd.saldo_2026);
+                const saldoCls = saldo >= 0 ? 'pos' : 'neg';
+
+                // Hoofdrij
+                const trMain = document.createElement('tr');
+                trMain.className = `kd-main${isOpen ? ' open' : ''}`;
+
+                const tdToggle = document.createElement('td');
+                tdToggle.className = 'col-toggle';
+                tdToggle.textContent = isOpen ? '▼' : '▶';
+                trMain.appendChild(tdToggle);
+
+                trMain.innerHTML += `
+                    <td>${naam}</td>
+                    <td>${kd.budgethouder}</td>
+                    <td class="num">${fmt.format(kd.baten_2026)}</td>
+                    <td class="num">${fmt.format(kd.lasten_2026)}</td>
+                    <td class="num ${saldoCls}">${saldo >= 0 ? '+' : ''}${fmt.format(saldo)}</td>
+                    <td class="num">${kd.aantal_projecten}</td>`;
+                tbody.appendChild(trMain);
+
+                // Subrijen per project
+                const subRijen = [];
+                for (const pj of projecten) {
+                    const rolKey = pj.projectrol.toLowerCase().replace(/\s+/g, '');
+                    const trSub = document.createElement('tr');
+                    trSub.className = 'kd-subrow';
+                    if (!isOpen) trSub.style.display = 'none';
+                    trSub.innerHTML = `
+                        <td></td>
+                        <td class="sub-label" colspan="2">${pj.projectnummer} – ${pj.projectnaam}</td>
+                        <td><span class="badge rol-${rolKey}">${pj.projectrol}</span></td>
+                        <td>${pj.projectmanager}</td>
+                        <td><span class="badge badge-${pj.type}">${pj.type}</span></td>
+                        <td></td>`;
+                    tbody.appendChild(trSub);
+                    subRijen.push(trSub);
+                }
+
+                // Toggle klik (toggle-cel én naam-cel)
+                const toggleClick = () => {
+                    const openNu = !kdIngeklapt.has(naam);
+                    openNu ? kdIngeklapt.add(naam) : kdIngeklapt.delete(naam);
+                    subRijen.forEach(tr => tr.style.display = openNu ? 'none' : '');
+                    tdToggle.textContent = openNu ? '▶' : '▼';
+                    trMain.classList.toggle('open', !openNu);
+                };
+                tdToggle.addEventListener('click', toggleClick);
+                trMain.cells[1].style.cursor = 'pointer';
+                trMain.cells[1].addEventListener('click', toggleClick);
+            }
+        }
+
+        let kdTimer;
+        document.getElementById('kd-search').addEventListener('input', () => {
+            clearTimeout(kdTimer); kdTimer = setTimeout(() => renderKDDetail(), 250);
+        });
+        document.getElementById('kd-filter-bh').addEventListener('change', () => renderKDDetail());
+        document.getElementById('kd-filter-rol').addEventListener('change', () => renderKDDetail());
+
+        // ================================================================
         // Tabs
         // ================================================================
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1293,7 +1486,7 @@
         // --- Show UI ---
         status.style.display = 'none';
         document.getElementById('app').style.display = '';
-        await Promise.all([renderP(), renderF(), renderK(), renderKP(), renderTS(), renderUP(), renderPivot()]);
+        await Promise.all([renderP(), renderF(), renderK(), renderKP(), renderTS(), renderUP(), renderPivot(), renderKDDetail()]);
     </script>
 </body>
 </html>
