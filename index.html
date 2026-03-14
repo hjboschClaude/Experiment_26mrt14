@@ -1056,8 +1056,10 @@
         });
         document.getElementById('pv-filter-pj').addEventListener('change', () => renderPivot());
 
-        // Persistent state: welke medewerker-IDs zijn ingeklapt
+        // Persistent state: welke medewerker-IDs zijn ingeklapt (standaard allemaal)
+        // Na eerste render gevuld; daarna bijgehouden via klikken
         const ingeklapt = new Set();
+        let eersteRender = true;
 
         async function renderPivot() {
             const search = document.getElementById('pv-search').value.trim().toLowerCase();
@@ -1109,36 +1111,43 @@
                 .filter(([, v]) => !search || v.naam.toLowerCase().includes(search))
                 .sort(([a], [b]) => a.localeCompare(b));
 
-            // Project-subrijen: alleen als één medewerker geselecteerd is
-            let projectenMap = new Map();
-            if (mwId) {
+            // Eerste render: alle medewerkers standaard ingeklapt
+            if (eersteRender) {
+                medewerkers.forEach(([id]) => ingeklapt.add(id));
+                eersteRender = false;
+            }
+
+            // Project-subrijen: altijd ophalen voor alle zichtbare medewerkers
+            // Map: werknemer_id → Map( projectnummer → { naam, weken } )
+            const alleProjectenMap = new Map();
+            if (!projectModus) {
                 const resPj = await conn.query(`
-                    SELECT t.projectnummer, p.projectnaam, t.weeknummer, SUM(t.uren) AS uren
+                    SELECT t.werknemer_id, t.projectnummer, p.projectnaam,
+                           t.weeknummer, SUM(t.uren) AS uren
                     FROM 'tijdschrijven.parquet' t
                     JOIN 'projecten.parquet' p USING (projectnummer)
                     ${whereDetail}
-                    GROUP BY t.projectnummer, p.projectnaam, t.weeknummer
-                    ORDER BY t.projectnummer, t.weeknummer
+                    GROUP BY t.werknemer_id, t.projectnummer, p.projectnaam, t.weeknummer
+                    ORDER BY t.werknemer_id, t.projectnummer, t.weeknummer
                 `);
                 for (const row of resPj.toArray()) {
-                    if (!projectenMap.has(row.projectnummer))
-                        projectenMap.set(row.projectnummer, { naam: row.projectnaam, weken: {} });
-                    projectenMap.get(row.projectnummer).weken[row.weeknummer] = Number(row.uren);
+                    if (!alleProjectenMap.has(row.werknemer_id))
+                        alleProjectenMap.set(row.werknemer_id, new Map());
+                    const pMap = alleProjectenMap.get(row.werknemer_id);
+                    if (!pMap.has(row.projectnummer))
+                        pMap.set(row.projectnummer, { naam: row.projectnaam, weken: {} });
+                    pMap.get(row.projectnummer).weken[row.weeknummer] = Number(row.uren);
                 }
             }
 
             // Teller
             let teller = `${medewerkers.length} medewerker${medewerkers.length !== 1 ? 's' : ''}`;
             if (projectModus) teller += ` op ${pjId}`;
-            else if (mwId)    teller += ` · ${projectenMap.size} project${projectenMap.size !== 1 ? 'en' : ''}`;
             document.getElementById('pv-row-count').textContent = teller;
 
             // Kolomtotalen
             const weekTotaal = {};
-            const bronTotaal = (pjId && mwId)
-                ? [...projectenMap.values()]       // geselecteerd project bij medewerker
-                : medewerkers.map(([, v]) => v);   // anders: hoofdrijen
-            for (const {weken} of bronTotaal) {
+            for (const [, {weken}] of medewerkers) {
                 for (const wk of WEEKS_2026)
                     weekTotaal[wk] = (weekTotaal[wk] || 0) + (weken[wk] || 0);
             }
@@ -1146,6 +1155,11 @@
             // Max uren voor kleurschaal
             const allUren = medewerkers.flatMap(([, {weken}]) => Object.values(weken));
             const maxUren = allUren.length ? Math.max(...allUren) : 36;
+
+            // Max uren over alle projectsubrijen (voor kleurschaal subrijen)
+            const allPjUren = [...alleProjectenMap.values()]
+                .flatMap(pm => [...pm.values()].flatMap(p => Object.values(p.weken)));
+            const maxPj = allPjUren.length ? Math.max(...allPjUren) : 1;
 
             // Helper: bouw een tabelrij
             function maakRij(labelTekst, weken, extraClass, maxU) {
@@ -1172,9 +1186,7 @@
             const tr1 = document.createElement('tr');
             const thName1 = document.createElement('th');
             thName1.className = 'col-name'; thName1.rowSpan = 2;
-            thName1.textContent = mwId ? 'Medewerker / Project'
-                                       : projectModus ? `Medewerker  ·  ${pjId}`
-                                       : 'Medewerker';
+            thName1.textContent = projectModus ? `Medewerker  ·  ${pjId}` : 'Medewerker / Project';
             tr1.appendChild(thName1);
             let lastMonth = null, curTh = null;
             for (const wk of WEEKS_2026) {
@@ -1203,47 +1215,44 @@
             // --- Tbody ---
             const tbody = document.getElementById('pivot-tbody');
             tbody.innerHTML = '';
-            const heeftSubrijen = mwId && projectenMap.size > 0;
-            const maxPj = heeftSubrijen
-                ? Math.max(...[...projectenMap.values()].flatMap(p => Object.values(p.weken)), 1)
-                : 1;
 
             for (const [id, {naam, weken}] of medewerkers) {
-                const totaalClass = (mwId || projectModus) ? 'row-total' : '';
-                const trTotaal = maakRij(naam, weken, totaalClass, maxUren);
+                const projectenVoorMw = alleProjectenMap.get(id);
+                const heeftSubrijen  = !projectModus && projectenVoorMw && projectenVoorMw.size > 0;
+                const totaalClass    = projectModus ? 'row-total' : 'row-total';
+                const trTotaal       = maakRij(naam, weken, totaalClass, maxUren);
 
-                // Voeg toggle-knop toe aan naamcel als er subrijen zijn
-                if (heeftSubrijen && id === mwId) {
-                    const tdName = trTotaal.querySelector('.col-name');
-                    const isIngeklapt = ingeklapt.has(id);
-                    const icon = document.createElement('span');
-                    icon.className = 'toggle-icon';
-                    icon.textContent = isIngeklapt ? '▶' : '▼';
+                // Toggle-icon in naamcel
+                if (heeftSubrijen) {
+                    const tdName    = trTotaal.querySelector('.col-name');
+                    const isOpen    = !ingeklapt.has(id);
+                    const icon      = document.createElement('span');
+                    icon.className  = 'toggle-icon';
+                    icon.textContent = isOpen ? '▼' : '▶';
+                    tdName.prepend(document.createTextNode('\u00a0'));
                     tdName.prepend(icon);
-                    tdName.prepend(document.createTextNode(' '));
                 }
                 tbody.appendChild(trTotaal);
 
-                // Projectsubrijen — alleen voor de geselecteerde medewerker
-                if (heeftSubrijen && id === mwId) {
-                    const isIngeklapt = ingeklapt.has(id);
+                // Subrijen per project (standaard ingeklapt tenzij eerder uitgeklapt)
+                if (heeftSubrijen) {
+                    const isOpen   = !ingeklapt.has(id);
                     const subRijen = [];
 
                     for (const [pnr, {naam: pnaam, weken: pweken}] of
-                            [...projectenMap.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+                            [...projectenVoorMw.entries()].sort(([a], [b]) => a.localeCompare(b))) {
                         const trSub = maakRij(`${pnr} – ${pnaam}`, pweken, 'row-project', maxPj);
-                        if (isIngeklapt) trSub.style.display = 'none';
+                        if (!isOpen) trSub.style.display = 'none';
                         tbody.appendChild(trSub);
                         subRijen.push(trSub);
                     }
 
-                    // Click: toggle zonder re-render
+                    // Click: directe DOM-toggle, geen re-render
                     trTotaal.querySelector('.col-name').addEventListener('click', () => {
-                        const nu = ingeklapt.has(id);
-                        nu ? ingeklapt.delete(id) : ingeklapt.add(id);
-                        const verborgen = !nu;
-                        subRijen.forEach(tr => tr.style.display = verborgen ? 'none' : '');
-                        trTotaal.querySelector('.toggle-icon').textContent = verborgen ? '▶' : '▼';
+                        const openNu = !ingeklapt.has(id);
+                        openNu ? ingeklapt.add(id) : ingeklapt.delete(id);
+                        subRijen.forEach(tr => tr.style.display = openNu ? 'none' : '');
+                        trTotaal.querySelector('.toggle-icon').textContent = openNu ? '▶' : '▼';
                     });
                 }
             }
@@ -1254,9 +1263,7 @@
             const tfTr = document.createElement('tr');
             const tfName = document.createElement('td');
             tfName.className = 'col-name';
-            tfName.textContent = projectModus ? `Totaal ${pjId}`
-                                              : (mwId && pjId) ? `Totaal ${pjId}`
-                                              : 'Totaal';
+            tfName.textContent = projectModus ? `Totaal ${pjId}` : 'Totaal';
             tfTr.appendChild(tfName);
             for (const wk of WEEKS_2026) {
                 const td = document.createElement('td');
