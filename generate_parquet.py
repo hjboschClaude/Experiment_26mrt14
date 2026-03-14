@@ -167,6 +167,28 @@ for i, w in enumerate(werknemers):
     an = achternamen[rng5.integers(0, len(achternamen))]
     werknemer_namen[w] = f"{vn} {an}"
 
+# Afdelingen met maximaal 3 teams per afdeling
+afdelingen_teams = {
+    "Ruimte & Wonen":       ["Team Wonen", "Team Ruimtelijke Ordening", "Team Omgeving"],
+    "Openbare Werken":      ["Team Wegen", "Team Groen", "Team Riolering"],
+    "Financiën":            ["Team Control", "Team Administratie", "Team Belastingen"],
+    "Sociale Zaken":        ["Team Inkomen", "Team Participatie", "Team Jeugdzorg"],
+    "Bestuur & Juridisch":  ["Team Juridische Zaken", "Team Bestuurssecretariaat"],
+    "ICT & Digitalisering": ["Team Infrastructuur", "Team Applicaties", "Team Informatiebeleid"],
+    "Communicatie":         ["Team Pers & Media", "Team Digitale Communicatie"],
+    "HR & Organisatie":     ["Team Werving", "Team Ontwikkeling", "Team Arbeidsvoorwaarden"],
+}
+
+# Wijs elke werknemer een vaste afdeling en team toe
+werknemer_afdeling = {}
+werknemer_team     = {}
+afd_lijst = list(afdelingen_teams.keys())
+for w in werknemers:
+    afd  = afd_lijst[int(rng5.integers(0, len(afd_lijst)))]
+    team = afdelingen_teams[afd][int(rng5.integers(0, len(afdelingen_teams[afd])))]
+    werknemer_afdeling[w] = afd
+    werknemer_team[w]     = team
+
 # Wijs per werknemer 1-6 projecten toe
 werknemer_projecten = {}
 for w in werknemers:
@@ -197,9 +219,12 @@ for w in werknemers:
         uren_per_project = [grenzen[i+1] - grenzen[i] for i in range(np_w)]
         for pnr, uren in zip(projecten_w, uren_per_project):
             if uren > 0:
-                ts_rows.append((w, werknemer_namen[w], week, pnr, uren))
+                ts_rows.append((w, werknemer_namen[w],
+                                werknemer_afdeling[w], werknemer_team[w],
+                                week, pnr, uren))
 
-df5 = pd.DataFrame(ts_rows, columns=["werknemer_id", "werknemer", "weeknummer", "projectnummer", "uren"])
+df5 = pd.DataFrame(ts_rows, columns=["werknemer_id", "werknemer", "afdeling", "team",
+                                      "weeknummer", "projectnummer", "uren"])
 df5 = df5.sort_values(["weeknummer", "werknemer_id", "projectnummer"]).reset_index(drop=True)
 
 df5.to_parquet("tijdschrijven.parquet", index=False)

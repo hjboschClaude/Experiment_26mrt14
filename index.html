@@ -358,6 +358,8 @@
         <div id="tab-pivot-2026" class="tab-panel">
             <div class="controls">
                 <input type="search" id="pv-search" placeholder="Zoek medewerker...">
+                <select id="pv-filter-afd"><option value="">Alle afdelingen</option></select>
+                <select id="pv-filter-team"><option value="">Alle teams</option></select>
                 <select id="pv-filter-mw"><option value="">Alle medewerkers</option></select>
                 <select id="pv-filter-pj"><option value="">Alle projecten</option></select>
                 <span class="row-count" id="pv-row-count"></span>
@@ -375,6 +377,8 @@
         <div id="tab-tijdschrijven" class="tab-panel">
             <div class="controls">
                 <input type="search" id="ts-search" placeholder="Zoek werknemer of project...">
+                <select id="ts-filter-afd"><option value="">Alle afdelingen</option></select>
+                <select id="ts-filter-team"><option value="">Alle teams</option></select>
                 <select id="ts-filter-week"><option value="">Alle weken</option></select>
                 <span class="row-count" id="ts-row-count"></span>
             </div>
@@ -384,6 +388,8 @@
                         <th data-col="weeknummer">Week<span class="si"></span></th>
                         <th data-col="werknemer_id">ID<span class="si"></span></th>
                         <th data-col="werknemer">Werknemer<span class="si"></span></th>
+                        <th data-col="afdeling">Afdeling<span class="si"></span></th>
+                        <th data-col="team">Team<span class="si"></span></th>
                         <th data-col="projectnummer">Projectnummer<span class="si"></span></th>
                         <th data-col="uren">Uren<span class="si"></span></th>
                     </tr></thead>
@@ -509,7 +515,52 @@
             fillSelect('kp-filter-kd', "SELECT DISTINCT kostendrager FROM 'kostendrager_projecten.parquet' ORDER BY 1", 'kostendrager'),
             fillSelect('ts-filter-week', "SELECT DISTINCT weeknummer FROM 'tijdschrijven.parquet' ORDER BY 1", 'weeknummer'),
             fillSelect('up-filter-week', "SELECT DISTINCT weeknummer FROM 'tijdschrijven.parquet' ORDER BY 1", 'weeknummer'),
+            fillSelect('ts-filter-afd',  "SELECT DISTINCT afdeling FROM 'tijdschrijven.parquet' ORDER BY 1", 'afdeling'),
+            fillSelect('pv-filter-afd',  "SELECT DISTINCT afdeling FROM 'tijdschrijven.parquet' ORDER BY 1", 'afdeling'),
         ]);
+
+        // Dynamische team-dropdown (tijdschrijven-tab)
+        async function updateTsTeamDropdown() {
+            const afd  = document.getElementById('ts-filter-afd').value;
+            const sel  = document.getElementById('ts-filter-team');
+            const prev = sel.value;
+            sel.innerHTML = '<option value="">Alle teams</option>';
+            const where = afd ? `WHERE afdeling = '${esc(afd)}'` : '';
+            const res = await conn.query(`SELECT DISTINCT team FROM 'tijdschrijven.parquet' ${where} ORDER BY 1`);
+            for (const row of res.toArray()) {
+                const opt = document.createElement('option');
+                opt.value = opt.textContent = row.team;
+                sel.appendChild(opt);
+            }
+            if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+        }
+        await updateTsTeamDropdown();
+        document.getElementById('ts-filter-afd').addEventListener('change', async () => {
+            await updateTsTeamDropdown(); renderTS();
+        });
+
+        // Dynamische team-dropdown (pivot-tab)
+        async function updatePvTeamDropdown() {
+            const afd  = document.getElementById('pv-filter-afd').value;
+            const sel  = document.getElementById('pv-filter-team');
+            const prev = sel.value;
+            sel.innerHTML = '<option value="">Alle teams</option>';
+            const where = afd ? `WHERE afdeling = '${esc(afd)}'` : '';
+            const res = await conn.query(`SELECT DISTINCT team FROM 'tijdschrijven.parquet' ${where} ORDER BY 1`);
+            for (const row of res.toArray()) {
+                const opt = document.createElement('option');
+                opt.value = opt.textContent = row.team;
+                sel.appendChild(opt);
+            }
+            if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+        }
+        await updatePvTeamDropdown();
+        document.getElementById('pv-filter-afd').addEventListener('change', async () => {
+            await updatePvTeamDropdown();
+            await updatePvMwDropdown();
+            await updateProjectDropdown();
+            renderPivot();
+        });
 
         // ================================================================
         // Generic table renderer
@@ -828,6 +879,10 @@
                 const conds = [];
                 const s = document.getElementById('ts-search').value.trim();
                 if (s) conds.push(`(werknemer ILIKE '%${esc(s)}%' OR werknemer_id ILIKE '%${esc(s)}%' OR projectnummer ILIKE '%${esc(s)}%')`);
+                const afd  = document.getElementById('ts-filter-afd').value;
+                if (afd)  conds.push(`afdeling = '${esc(afd)}'`);
+                const team = document.getElementById('ts-filter-team').value;
+                if (team) conds.push(`team = '${esc(team)}'`);
                 const wk = document.getElementById('ts-filter-week').value;
                 if (wk) conds.push(`weeknummer = '${esc(wk)}'`);
                 return conds.length ? `WHERE ${conds.join(' AND ')}` : '';
@@ -838,6 +893,8 @@
                     <td>${row.weeknummer}</td>
                     <td>${row.werknemer_id}</td>
                     <td>${row.werknemer}</td>
+                    <td>${row.afdeling}</td>
+                    <td>${row.team}</td>
                     <td>${row.projectnummer}</td>
                     <td class="num">${row.uren}</td>`;
                 return tr;
@@ -847,6 +904,7 @@
         document.getElementById('ts-search').addEventListener('input', () => {
             clearTimeout(tsTimer); tsTimer = setTimeout(() => renderTS(), 250);
         });
+        document.getElementById('ts-filter-team').addEventListener('change', () => renderTS());
         document.getElementById('ts-filter-week').addEventListener('change', () => renderTS());
 
         // ================================================================
@@ -935,20 +993,42 @@
         // ================================================================
         const WEEKS_2026 = Array.from({length: 52}, (_, i) => `2026-W${String(i+1).padStart(2,'0')}`);
 
-        // Vul medewerker-dropdown eenmalig
-        await fillSelect('pv-filter-mw',
-            "SELECT DISTINCT werknemer_id, werknemer FROM 'tijdschrijven.parquet' ORDER BY werknemer_id",
-            'werknemer_id',
-            row => `${row.werknemer_id} – ${row.werknemer}`);
+        // Dynamische medewerker-dropdown op basis van afdeling/team
+        async function updatePvMwDropdown() {
+            const afd  = document.getElementById('pv-filter-afd').value;
+            const team = document.getElementById('pv-filter-team').value;
+            const sel  = document.getElementById('pv-filter-mw');
+            const prev = sel.value;
+            sel.innerHTML = '<option value="">Alle medewerkers</option>';
+            const conds = [];
+            if (afd)  conds.push(`afdeling = '${esc(afd)}'`);
+            if (team) conds.push(`team = '${esc(team)}'`);
+            const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+            const res = await conn.query(
+                `SELECT DISTINCT werknemer_id, werknemer FROM 'tijdschrijven.parquet' ${where} ORDER BY werknemer_id`);
+            for (const row of res.toArray()) {
+                const opt = document.createElement('option');
+                opt.value = row.werknemer_id;
+                opt.textContent = `${row.werknemer_id} – ${row.werknemer}`;
+                sel.appendChild(opt);
+            }
+            if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+        }
+        await updatePvMwDropdown();
 
-        // Wissel project-dropdown op basis van geselecteerde medewerker
+        // Wissel project-dropdown op basis van geselecteerde medewerker/afdeling/team
         async function updateProjectDropdown() {
+            const afd  = document.getElementById('pv-filter-afd').value;
+            const team = document.getElementById('pv-filter-team').value;
             const mwId = document.getElementById('pv-filter-mw').value;
             const sel  = document.getElementById('pv-filter-pj');
             const prev = sel.value;
             sel.innerHTML = '<option value="">Alle projecten</option>';
-            const where = mwId ? `WHERE werknemer_id = '${esc(mwId)}' AND weeknummer LIKE '2026-%'`
-                                : `WHERE weeknummer LIKE '2026-%'`;
+            const conds = [`weeknummer LIKE '2026-%'`];
+            if (mwId)  conds.push(`werknemer_id = '${esc(mwId)}'`);
+            if (afd)   conds.push(`afdeling = '${esc(afd)}'`);
+            if (team)  conds.push(`team = '${esc(team)}'`);
+            const where = `WHERE ${conds.join(' AND ')}`;
             const res = await conn.query(
                 `SELECT DISTINCT t.projectnummer, p.projectnaam
                  FROM 'tijdschrijven.parquet' t
@@ -960,24 +1040,29 @@
                 opt.textContent = `${row.projectnummer} – ${row.projectnaam}`;
                 sel.appendChild(opt);
             }
-            // Herstel vorige keuze als die nog bestaat
             if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
         }
         await updateProjectDropdown();
 
+        document.getElementById('pv-filter-team').addEventListener('change', async () => {
+            await updatePvMwDropdown(); await updateProjectDropdown(); renderPivot();
+        });
         document.getElementById('pv-filter-mw').addEventListener('change', async () => {
-            await updateProjectDropdown();
-            renderPivot();
+            await updateProjectDropdown(); renderPivot();
         });
         document.getElementById('pv-filter-pj').addEventListener('change', () => renderPivot());
 
         async function renderPivot() {
             const search = document.getElementById('pv-search').value.trim().toLowerCase();
+            const afd    = document.getElementById('pv-filter-afd').value;
+            const team   = document.getElementById('pv-filter-team').value;
             const mwId   = document.getElementById('pv-filter-mw').value;
             const pjId   = document.getElementById('pv-filter-pj').value;
 
             // WHERE voor totaalregel (zonder projectfilter, want totaal = alle projecten)
             const condsTotal = [`weeknummer LIKE '2026-%'`];
+            if (afd)  condsTotal.push(`afdeling = '${esc(afd)}'`);
+            if (team) condsTotal.push(`team = '${esc(team)}'`);
             if (mwId) condsTotal.push(`werknemer_id = '${esc(mwId)}'`);
             const whereTotal = `WHERE ${condsTotal.join(' AND ')}`;
 
