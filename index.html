@@ -14,38 +14,59 @@
             padding: 24px;
         }
 
-        h1 { margin-bottom: 16px; font-size: 1.5rem; }
+        h1 { margin-bottom: 20px; font-size: 1.5rem; }
 
-        #controls {
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 18px;
+            border-bottom: 2px solid #d1d5db;
+        }
+        .tab-btn {
+            padding: 9px 20px;
+            border: none;
+            border-bottom: 3px solid transparent;
+            background: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: -2px;
+            border-radius: 4px 4px 0 0;
+            transition: color .15s, border-color .15s;
+        }
+        .tab-btn:hover { color: #2c3e50; }
+        .tab-btn.active { color: #2c3e50; border-bottom-color: #2c3e50; }
+
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* Controls */
+        .controls {
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
-            margin-bottom: 16px;
+            margin-bottom: 14px;
             align-items: center;
         }
 
-        #search {
+        input[type="search"], select {
             padding: 7px 12px;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            font-size: 0.9rem;
-            width: 220px;
-        }
-
-        select {
-            padding: 7px 10px;
             border: 1px solid #ccc;
             border-radius: 6px;
             font-size: 0.9rem;
             background: #fff;
         }
+        input[type="search"] { width: 220px; }
 
-        #row-count {
+        .row-count {
             margin-left: auto;
             font-size: 0.85rem;
             color: #666;
         }
 
+        /* Status */
         #status {
             padding: 12px;
             background: #e8f0fe;
@@ -55,6 +76,7 @@
             color: #1a4f9e;
         }
 
+        /* Table */
         .table-wrap {
             overflow-x: auto;
             border-radius: 8px;
@@ -68,10 +90,7 @@
             font-size: 0.875rem;
         }
 
-        thead tr {
-            background: #2c3e50;
-            color: #fff;
-        }
+        thead tr { background: #2c3e50; color: #fff; }
 
         th {
             padding: 10px 14px;
@@ -80,18 +99,19 @@
             user-select: none;
             white-space: nowrap;
         }
-
         th:hover { background: #3d5166; }
-
-        th .sort-icon { margin-left: 5px; opacity: .5; font-size: .75rem; }
-        th.asc  .sort-icon::after { content: '▲'; opacity: 1; }
-        th.desc .sort-icon::after { content: '▼'; opacity: 1; }
-        th:not(.asc):not(.desc) .sort-icon::after { content: '⇅'; }
+        th .si { margin-left: 4px; font-size: .7rem; opacity: .5; }
+        th.asc  .si::after { content: '▲'; opacity: 1; }
+        th.desc .si::after { content: '▼'; opacity: 1; }
+        th:not(.asc):not(.desc) .si::after { content: '⇅'; }
 
         tbody tr:nth-child(even) { background: #f9f9f9; }
         tbody tr:hover { background: #eef3fb; }
-
         td { padding: 8px 14px; border-bottom: 1px solid #eee; white-space: nowrap; }
+
+        td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        td.pos { color: #166534; }
+        td.neg { color: #b91c1c; }
 
         .badge {
             display: inline-block;
@@ -100,20 +120,20 @@
             font-size: 0.78rem;
             font-weight: 600;
         }
-        .badge-uren           { background: #dbeafe; color: #1d4ed8; }
-        .badge-regulier       { background: #dcfce7; color: #166534; }
-        .badge-subsidie       { background: #fef9c3; color: #854d0e; }
+        .badge-uren             { background: #dbeafe; color: #1d4ed8; }
+        .badge-regulier         { background: #dcfce7; color: #166534; }
+        .badge-subsidie         { background: #fef9c3; color: #854d0e; }
         .badge-grondexploitatie { background: #fce7f3; color: #9d174d; }
 
-        #pagination {
+        /* Pagination */
+        .pagination {
             display: flex;
             align-items: center;
             gap: 8px;
             margin-top: 14px;
             justify-content: center;
         }
-
-        #pagination button {
+        .pagination button {
             padding: 5px 12px;
             border: 1px solid #ccc;
             border-radius: 5px;
@@ -121,219 +141,325 @@
             cursor: pointer;
             font-size: 0.85rem;
         }
-
-        #pagination button:disabled { opacity: .4; cursor: default; }
-        #pagination button:not(:disabled):hover { background: #eef3fb; }
-        #page-info { font-size: 0.85rem; color: #555; }
+        .pagination button:disabled { opacity: .4; cursor: default; }
+        .pagination button:not(:disabled):hover { background: #eef3fb; }
+        .page-info { font-size: 0.85rem; color: #555; }
     </style>
 </head>
 <body>
     <h1>Projectenoverzicht</h1>
-
     <div id="status">DuckDB-WASM laden...</div>
 
-    <div id="controls" style="display:none">
-        <input id="search" type="search" placeholder="Zoeken...">
+    <div id="app" style="display:none">
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="tab-projecten">Projecten</button>
+            <button class="tab-btn"        data-tab="tab-financien">Financiën</button>
+        </div>
 
-        <select id="filter-type">
-            <option value="">Alle types</option>
-            <option value="uren">Uren</option>
-            <option value="regulier">Regulier</option>
-            <option value="subsidie">Subsidie</option>
-            <option value="grondexploitatie">Grondexploitatie</option>
-        </select>
+        <!-- TAB 1: Projecten -->
+        <div id="tab-projecten" class="tab-panel active">
+            <div class="controls">
+                <input type="search" id="p-search" placeholder="Zoeken...">
+                <select id="p-filter-type">
+                    <option value="">Alle types</option>
+                    <option value="uren">Uren</option>
+                    <option value="regulier">Regulier</option>
+                    <option value="subsidie">Subsidie</option>
+                    <option value="grondexploitatie">Grondexploitatie</option>
+                </select>
+                <select id="p-filter-pm"><option value="">Alle projectmanagers</option></select>
+                <select id="p-filter-dir"><option value="">Alle directeuren</option></select>
+                <select id="p-filter-ao"><option value="">Alle opdrachtgevers</option></select>
+                <span class="row-count" id="p-row-count"></span>
+            </div>
+            <div class="table-wrap">
+                <table id="p-tbl">
+                    <thead><tr>
+                        <th data-col="projectnummer">Projectnummer<span class="si"></span></th>
+                        <th data-col="projectnaam">Projectnaam<span class="si"></span></th>
+                        <th data-col="startdatum">Startdatum<span class="si"></span></th>
+                        <th data-col="einddatum">Einddatum<span class="si"></span></th>
+                        <th data-col="projectmanager">Projectmanager<span class="si"></span></th>
+                        <th data-col="type">Type<span class="si"></span></th>
+                        <th data-col="verantwoordelijke directeur">Ver. directeur<span class="si"></span></th>
+                        <th data-col="ambtelijk opdrachtgever">Ambt. opdrachtgever<span class="si"></span></th>
+                    </tr></thead>
+                    <tbody id="p-tbody"></tbody>
+                </table>
+            </div>
+            <div class="pagination">
+                <button id="p-first">«</button>
+                <button id="p-prev">‹</button>
+                <span class="page-info" id="p-page-info"></span>
+                <button id="p-next">›</button>
+                <button id="p-last">»</button>
+                <select id="p-page-size">
+                    <option value="25" selected>25 / pagina</option>
+                    <option value="50">50 / pagina</option>
+                    <option value="100">100 / pagina</option>
+                </select>
+            </div>
+        </div>
 
-        <select id="filter-pm">
-            <option value="">Alle projectmanagers</option>
-        </select>
-
-        <span id="row-count"></span>
-    </div>
-
-    <div class="table-wrap" id="table-wrap" style="display:none">
-        <table id="tbl">
-            <thead>
-                <tr>
-                    <th data-col="projectnummer">Projectnummer<span class="sort-icon"></span></th>
-                    <th data-col="projectnaam">Projectnaam<span class="sort-icon"></span></th>
-                    <th data-col="startdatum">Startdatum<span class="sort-icon"></span></th>
-                    <th data-col="einddatum">Einddatum<span class="sort-icon"></span></th>
-                    <th data-col="projectmanager">Projectmanager<span class="sort-icon"></span></th>
-                    <th data-col="type">Type<span class="sort-icon"></span></th>
-                </tr>
-            </thead>
-            <tbody id="tbody"></tbody>
-        </table>
-    </div>
-
-    <div id="pagination" style="display:none">
-        <button id="btn-first">«</button>
-        <button id="btn-prev">‹</button>
-        <span id="page-info"></span>
-        <button id="btn-next">›</button>
-        <button id="btn-last">»</button>
-        <select id="page-size">
-            <option value="25" selected>25 / pagina</option>
-            <option value="50">50 / pagina</option>
-            <option value="100">100 / pagina</option>
-        </select>
+        <!-- TAB 2: Financiën -->
+        <div id="tab-financien" class="tab-panel">
+            <div class="controls">
+                <input type="search" id="f-search" placeholder="Zoek projectnummer...">
+                <span class="row-count" id="f-row-count"></span>
+            </div>
+            <div class="table-wrap">
+                <table id="f-tbl">
+                    <thead><tr>
+                        <th data-col="projectnummer">Projectnummer<span class="si"></span></th>
+                        <th data-col="kostenbudget">Kostenbudget<span class="si"></span></th>
+                        <th data-col="kosten">Kosten<span class="si"></span></th>
+                        <th data-col="kosten_afwijking">Afwijking kosten<span class="si"></span></th>
+                        <th data-col="opbrengstenbudget">Opbrengstenbudget<span class="si"></span></th>
+                        <th data-col="opbrengsten">Opbrengsten<span class="si"></span></th>
+                        <th data-col="opbrengsten_afwijking">Afwijking opbrengsten<span class="si"></span></th>
+                    </tr></thead>
+                    <tbody id="f-tbody"></tbody>
+                </table>
+            </div>
+            <div class="pagination">
+                <button id="f-first">«</button>
+                <button id="f-prev">‹</button>
+                <span class="page-info" id="f-page-info"></span>
+                <button id="f-next">›</button>
+                <button id="f-last">»</button>
+                <select id="f-page-size">
+                    <option value="25" selected>25 / pagina</option>
+                    <option value="50">50 / pagina</option>
+                    <option value="100">100 / pagina</option>
+                </select>
+            </div>
+        </div>
     </div>
 
     <script type="module">
         import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
 
-        const BUNDLES = duckdb.getJsDelivrBundles();
-
-        const status   = document.getElementById('status');
-        const controls = document.getElementById('controls');
-        const tableWrap = document.getElementById('table-wrap');
-        const pagination = document.getElementById('pagination');
-
         // --- Init DuckDB ---
-        status.textContent = 'DuckDB-WASM initialiseren...';
+        const status = document.getElementById('status');
+        const BUNDLES = duckdb.getJsDelivrBundles();
         const bundle = await duckdb.selectBundle(BUNDLES);
         const workerUrl = URL.createObjectURL(
             new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' })
         );
-        const worker = new Worker(workerUrl);
-        const logger = new duckdb.ConsoleLogger();
-        const db = new duckdb.AsyncDuckDB(logger, worker);
+        const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), new Worker(workerUrl));
         await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-
-        // --- Load parquet ---
-        status.textContent = 'Parquet bestand laden...';
-        const resp = await fetch('projecten.parquet');
-        const buf  = await resp.arrayBuffer();
-        await db.registerFileBuffer('projecten.parquet', new Uint8Array(buf));
-
         const conn = await db.connect();
 
-        // --- Populate PM filter ---
-        const pmResult = await conn.query(
-            "SELECT DISTINCT projectmanager FROM 'projecten.parquet' ORDER BY projectmanager"
-        );
-        const pmSelect = document.getElementById('filter-pm');
-        for (const row of pmResult.toArray()) {
-            const opt = document.createElement('option');
-            opt.value = opt.textContent = row.projectmanager;
-            pmSelect.appendChild(opt);
+        // --- Load parquet files ---
+        status.textContent = 'Parquet bestanden laden...';
+        for (const file of ['projecten.parquet', 'financien.parquet']) {
+            const buf = await (await fetch(file)).arrayBuffer();
+            await db.registerFileBuffer(file, new Uint8Array(buf));
         }
 
-        // --- State ---
-        let sortCol = 'projectnummer';
-        let sortDir = 'asc';
-        let page    = 1;
-        let pageSize = 25;
-        let totalRows = 0;
-
-        function buildQuery(forCount = false) {
-            const search  = document.getElementById('search').value.trim();
-            const typeVal = document.getElementById('filter-type').value;
-            const pmVal   = document.getElementById('filter-pm').value;
-
-            const conditions = [];
-            if (search) {
-                const s = search.replace(/'/g, "''");
-                conditions.push(`(projectnummer ILIKE '%${s}%' OR projectnaam ILIKE '%${s}%' OR projectmanager ILIKE '%${s}%')`);
+        // --- Populate filter dropdowns ---
+        async function fillSelect(selectId, query, field) {
+            const sel = document.getElementById(selectId);
+            const res = await conn.query(query);
+            for (const row of res.toArray()) {
+                const opt = document.createElement('option');
+                opt.value = opt.textContent = row[field];
+                sel.appendChild(opt);
             }
-            if (typeVal) conditions.push(`type = '${typeVal.replace(/'/g,"''")}'`);
-            if (pmVal)   conditions.push(`projectmanager = '${pmVal.replace(/'/g,"''")}'`);
-
-            const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-
-            if (forCount) return `SELECT COUNT(*) AS n FROM 'projecten.parquet' ${where}`;
-
-            const offset = (page - 1) * pageSize;
-            return `SELECT * FROM 'projecten.parquet' ${where}
-                    ORDER BY "${sortCol}" ${sortDir.toUpperCase()}
-                    LIMIT ${pageSize} OFFSET ${offset}`;
         }
+        await Promise.all([
+            fillSelect('p-filter-pm',  "SELECT DISTINCT projectmanager FROM 'projecten.parquet' ORDER BY 1", 'projectmanager'),
+            fillSelect('p-filter-dir', "SELECT DISTINCT \"verantwoordelijke directeur\" FROM 'projecten.parquet' ORDER BY 1", 'verantwoordelijke directeur'),
+            fillSelect('p-filter-ao',  "SELECT DISTINCT \"ambtelijk opdrachtgever\" FROM 'projecten.parquet' ORDER BY 1", 'ambtelijk opdrachtgever'),
+        ]);
 
-        async function render() {
-            const countRes = await conn.query(buildQuery(true));
-            totalRows = Number(countRes.toArray()[0].n);
+        // ================================================================
+        // Generic table renderer
+        // ================================================================
+        function makeTable({ file, tbodyId, tableId, countId, pageInfoId,
+                             firstId, prevId, nextId, lastId, pageSizeId,
+                             defaultSort, buildWhere, buildSelect, renderRow }) {
+            let sortCol = defaultSort;
+            let sortDir = 'asc';
+            let page = 1;
+            let pageSize = 25;
+            let totalRows = 0;
 
-            const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
-            if (page > totalPages) page = totalPages;
+            async function render() {
+                const where = buildWhere();
+                const countRes = await conn.query(
+                    `SELECT COUNT(*) AS n FROM '${file}' ${where}`
+                );
+                totalRows = Number(countRes.toArray()[0].n);
+                const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+                if (page > totalPages) page = totalPages;
 
-            const result = await conn.query(buildQuery(false));
-            const rows   = result.toArray();
+                const offset = (page - 1) * pageSize;
+                const sel = buildSelect ? buildSelect() : '*';
+                const rows = (await conn.query(
+                    `SELECT ${sel} FROM '${file}' ${where}
+                     ORDER BY "${sortCol}" ${sortDir.toUpperCase()}
+                     LIMIT ${pageSize} OFFSET ${offset}`
+                )).toArray();
 
-            const tbody = document.getElementById('tbody');
-            tbody.innerHTML = '';
-            for (const row of rows) {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${row.projectnummer}</td>
-                    <td>${row.projectnaam}</td>
-                    <td>${row.startdatum}</td>
-                    <td>${row.einddatum}</td>
-                    <td>${row.projectmanager}</td>
-                    <td><span class="badge badge-${row.type}">${row.type}</span></td>
-                `;
-                tbody.appendChild(tr);
+                const tbody = document.getElementById(tbodyId);
+                tbody.innerHTML = '';
+                rows.forEach(row => { tbody.appendChild(renderRow(row)); });
+
+                // Sort icons
+                document.querySelectorAll(`#${tableId} th`).forEach(th => {
+                    th.classList.remove('asc', 'desc');
+                    if (th.dataset.col === sortCol) th.classList.add(sortDir);
+                });
+
+                document.getElementById(countId).textContent =
+                    `${totalRows} rij${totalRows !== 1 ? 'en' : ''}`;
+                document.getElementById(pageInfoId).textContent =
+                    `Pagina ${page} van ${totalPages}`;
+                document.getElementById(firstId).disabled = page === 1;
+                document.getElementById(prevId).disabled  = page === 1;
+                document.getElementById(nextId).disabled  = page === totalPages;
+                document.getElementById(lastId).disabled  = page === totalPages;
+                document.getElementById(lastId)._total    = totalPages;
             }
 
-            // Sort icons
-            document.querySelectorAll('th').forEach(th => {
-                th.classList.remove('asc', 'desc');
-                if (th.dataset.col === sortCol) th.classList.add(sortDir);
+            // Column sort
+            document.querySelectorAll(`#${tableId} th[data-col]`).forEach(th => {
+                th.addEventListener('click', () => {
+                    sortCol === th.dataset.col
+                        ? (sortDir = sortDir === 'asc' ? 'desc' : 'asc')
+                        : (sortCol = th.dataset.col, sortDir = 'asc');
+                    page = 1; render();
+                });
             });
-
-            // Row count
-            document.getElementById('row-count').textContent =
-                `${totalRows} rij${totalRows !== 1 ? 'en' : ''}`;
 
             // Pagination
-            const pageInfo = document.getElementById('page-info');
-            pageInfo.textContent = `Pagina ${page} van ${totalPages}`;
-            document.getElementById('btn-first').disabled = page === 1;
-            document.getElementById('btn-prev').disabled  = page === 1;
-            document.getElementById('btn-next').disabled  = page === totalPages;
-            document.getElementById('btn-last').disabled  = page === totalPages;
-            document.getElementById('btn-last')._total    = totalPages;
+            document.getElementById(firstId).addEventListener('click', () => { page = 1; render(); });
+            document.getElementById(prevId).addEventListener('click',  () => { page--; render(); });
+            document.getElementById(nextId).addEventListener('click',  () => { page++; render(); });
+            document.getElementById(lastId).addEventListener('click',  () => {
+                page = Math.ceil(totalRows / pageSize); render();
+            });
+            document.getElementById(pageSizeId).addEventListener('change', e => {
+                pageSize = Number(e.target.value); page = 1; render();
+            });
+
+            return render;
         }
 
-        // --- Event listeners ---
-        document.querySelectorAll('th[data-col]').forEach(th => {
-            th.addEventListener('click', () => {
-                if (sortCol === th.dataset.col) {
-                    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-                } else {
-                    sortCol = th.dataset.col;
-                    sortDir = 'asc';
-                }
-                page = 1;
-                render();
+        // ================================================================
+        // Tab 1 – Projecten
+        // ================================================================
+        const esc = s => s.replace(/'/g, "''");
+
+        function pWhere() {
+            const conds = [];
+            const search = document.getElementById('p-search').value.trim();
+            if (search) conds.push(`(projectnummer ILIKE '%${esc(search)}%' OR projectnaam ILIKE '%${esc(search)}%' OR projectmanager ILIKE '%${esc(search)}%')`);
+            const type = document.getElementById('p-filter-type').value;
+            if (type) conds.push(`type = '${esc(type)}'`);
+            const pm = document.getElementById('p-filter-pm').value;
+            if (pm) conds.push(`projectmanager = '${esc(pm)}'`);
+            const dir = document.getElementById('p-filter-dir').value;
+            if (dir) conds.push(`"verantwoordelijke directeur" = '${esc(dir)}'`);
+            const ao = document.getElementById('p-filter-ao').value;
+            if (ao) conds.push(`"ambtelijk opdrachtgever" = '${esc(ao)}'`);
+            return conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+        }
+
+        function pRow(row) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${row.projectnummer}</td>
+                <td>${row.projectnaam}</td>
+                <td>${row.startdatum}</td>
+                <td>${row.einddatum}</td>
+                <td>${row.projectmanager}</td>
+                <td><span class="badge badge-${row.type}">${row.type}</span></td>
+                <td>${row['verantwoordelijke directeur']}</td>
+                <td>${row['ambtelijk opdrachtgever']}</td>`;
+            return tr;
+        }
+
+        const renderP = makeTable({
+            file: 'projecten.parquet', tbodyId: 'p-tbody', tableId: 'p-tbl',
+            countId: 'p-row-count', pageInfoId: 'p-page-info',
+            firstId: 'p-first', prevId: 'p-prev', nextId: 'p-next', lastId: 'p-last',
+            pageSizeId: 'p-page-size', defaultSort: 'projectnummer',
+            buildWhere: pWhere, renderRow: pRow,
+        });
+
+        let pTimer;
+        document.getElementById('p-search').addEventListener('input', () => {
+            clearTimeout(pTimer); pTimer = setTimeout(() => { renderP(); }, 250);
+        });
+        ['p-filter-type','p-filter-pm','p-filter-dir','p-filter-ao'].forEach(id =>
+            document.getElementById(id).addEventListener('change', () => renderP())
+        );
+
+        // ================================================================
+        // Tab 2 – Financiën
+        // ================================================================
+        const fmt = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+
+        function fWhere() {
+            const search = document.getElementById('f-search').value.trim();
+            return search ? `WHERE projectnummer ILIKE '%${esc(search)}%'` : '';
+        }
+
+        function fSelect() {
+            return `projectnummer, kostenbudget, kosten,
+                    (kosten - kostenbudget) AS kosten_afwijking,
+                    opbrengstenbudget, opbrengsten,
+                    (opbrengsten - opbrengstenbudget) AS opbrengsten_afwijking`;
+        }
+
+        function fRow(row) {
+            const tr = document.createElement('tr');
+            const ka = row.kosten_afwijking;
+            const oa = row.opbrengsten_afwijking;
+            const kaClass = `num ${ka > 0 ? 'neg' : ka < 0 ? 'pos' : ''}`;
+            const oaClass = `num ${oa > 0 ? 'pos' : oa < 0 ? 'neg' : ''}`;
+            tr.innerHTML = `
+                <td>${row.projectnummer}</td>
+                <td class="num">${fmt.format(row.kostenbudget)}</td>
+                <td class="num">${fmt.format(row.kosten)}</td>
+                <td class="${kaClass}">${ka >= 0 ? '+' : ''}${fmt.format(ka)}</td>
+                <td class="num">${fmt.format(row.opbrengstenbudget)}</td>
+                <td class="num">${fmt.format(row.opbrengsten)}</td>
+                <td class="${oaClass}">${oa >= 0 ? '+' : ''}${fmt.format(oa)}</td>`;
+            return tr;
+        }
+
+        const renderF = makeTable({
+            file: 'financien.parquet', tbodyId: 'f-tbody', tableId: 'f-tbl',
+            countId: 'f-row-count', pageInfoId: 'f-page-info',
+            firstId: 'f-first', prevId: 'f-prev', nextId: 'f-next', lastId: 'f-last',
+            pageSizeId: 'f-page-size', defaultSort: 'projectnummer',
+            buildWhere: fWhere, buildSelect: fSelect, renderRow: fRow,
+        });
+
+        let fTimer;
+        document.getElementById('f-search').addEventListener('input', () => {
+            clearTimeout(fTimer); fTimer = setTimeout(() => { renderF(); }, 250);
+        });
+
+        // ================================================================
+        // Tabs
+        // ================================================================
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.tab).classList.add('active');
             });
-        });
-
-        let searchTimer;
-        document.getElementById('search').addEventListener('input', () => {
-            clearTimeout(searchTimer);
-            searchTimer = setTimeout(() => { page = 1; render(); }, 250);
-        });
-
-        document.getElementById('filter-type').addEventListener('change', () => { page = 1; render(); });
-        document.getElementById('filter-pm').addEventListener('change',   () => { page = 1; render(); });
-
-        document.getElementById('btn-first').addEventListener('click', () => { page = 1; render(); });
-        document.getElementById('btn-prev').addEventListener('click',  () => { page--; render(); });
-        document.getElementById('btn-next').addEventListener('click',  () => { page++; render(); });
-        document.getElementById('btn-last').addEventListener('click',  () => {
-            page = Math.ceil(totalRows / pageSize); render();
-        });
-        document.getElementById('page-size').addEventListener('change', e => {
-            pageSize = Number(e.target.value); page = 1; render();
         });
 
         // --- Show UI ---
         status.style.display = 'none';
-        controls.style.display  = 'flex';
-        tableWrap.style.display = '';
-        pagination.style.display = 'flex';
-
-        render();
+        document.getElementById('app').style.display = '';
+        await Promise.all([renderP(), renderF()]);
     </script>
 </body>
 </html>
